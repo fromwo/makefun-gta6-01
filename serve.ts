@@ -1,44 +1,49 @@
-// Solmar Heat — a tiny static server for game/ (Node 22, standard library only).
-// Run `node serve.ts`, then open the game at http://localhost:8080.
-// It only serves files under game/, sends the MIME types a browser game needs,
-// and refuses any path that escapes the game folder. This is a local
-// development convenience, not a server for the public internet.
+// A tiny static server for game/ (Node 22, standard library only), so the
+// entry can be played locally without a build step: `node serve.ts` serves
+// game/ on http://localhost:8080 (or --port <n>). It sends the MIME types a
+// browser game needs, refuses any path outside game/, and otherwise does
+// nothing clever: a development convenience, not a server for the internet.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
-const args = process.argv.slice(2);
-const portIndex = args.indexOf('--port');
-const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+const argv = process.argv.slice(2);
+const portFlag = argv.indexOf('--port');
+const wanted = portFlag === -1 ? 8080 : Number(argv[portFlag + 1]);
+const port = Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : 8080;
+const host = '127.0.0.1';
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.glb': 'model/gltf-binary',
-  '.gltf': 'model/gltf+json',
-  '.bin': 'application/octet-stream',
-  '.wasm': 'application/wasm',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.txt': 'text/plain; charset=utf-8',
-};
+const MIME = new Map([
+  ['.html', 'text/html; charset=utf-8'],
+  ['.js', 'text/javascript; charset=utf-8'],
+  ['.mjs', 'text/javascript; charset=utf-8'],
+  ['.css', 'text/css; charset=utf-8'],
+  ['.json', 'application/json; charset=utf-8'],
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.gif', 'image/gif'],
+  ['.webp', 'image/webp'],
+  ['.svg', 'image/svg+xml'],
+  ['.ico', 'image/x-icon'],
+  ['.woff2', 'font/woff2'],
+  ['.glb', 'model/gltf-binary'],
+  ['.gltf', 'model/gltf+json'],
+  ['.bin', 'application/octet-stream'],
+  ['.wasm', 'application/wasm'],
+  ['.wav', 'audio/wav'],
+  ['.mp3', 'audio/mpeg'],
+  ['.ogg', 'audio/ogg'],
+  ['.txt', 'text/plain; charset=utf-8'],
+]);
 
-createServer((request, response) => {
+function mimeFor(file) {
+  return MIME.get(extname(file).toLowerCase()) ?? 'application/octet-stream';
+}
+
+const server = createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
   let pathname;
   try {
@@ -63,11 +68,13 @@ createServer((request, response) => {
     return;
   }
   response.writeHead(200, {
-    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-type': mimeFor(file),
     'content-length': size,
     'cache-control': 'no-store',
   });
   createReadStream(file).pipe(response);
-}).listen(port, '127.0.0.1', () => {
-  console.log(`Solmar Heat game/ is on http://localhost:${port}`);
+});
+
+server.listen(port, host, () => {
+  console.log(`game/ is on http://${host}:${port} (serving ${root})`);
 });

@@ -1,143 +1,195 @@
-// Cars for Solmar Heat: creation, arcade driving physics, building collision
-// and top-down drawing. A car is a rounded rectangle with a windshield, roof,
-// headlights and taillights; police cars add a light bar.
-import { CAR_MODELS, POLICE_COLOR, WORLD_W, WORLD_H, clamp } from './config.js';
+// Vehicles: the types, the driving physics, and the parked cars the
+// player can steal. A car is a plain object; traffic and police reuse it
+// and add their own steering on top.
+
+import { CAR, WORLD } from './config.js';
+import { chance, int, pick, range } from './random.js';
+import { hitsBuilding, randomRoadPoint } from './city.js';
+
+export const CAR_TYPES = [
+  { name: 'Solmar Sedan', color: '#c94f4f', accel: 520, top: 600, turn: 2.6 },
+  { name: 'Palm Taxi', color: '#e8b73a', accel: 500, top: 580, turn: 2.7 },
+  { name: 'Beach Buggy', color: '#4fae8a', accel: 460, top: 520, turn: 3.0 },
+  { name: 'Downtown Coupe', color: '#4f7fd0', accel: 640, top: 760, turn: 2.5 },
+  { name: 'Harbor Truck', color: '#8a8f96', accel: 420, top: 500, turn: 2.2 },
+  { name: 'Sunset Convertible', color: '#d06fae', accel: 600, top: 720, turn: 2.8 },
+];
+
+export const POLICE_CAR = { name: 'SCPD Interceptor', color: '#1c2f4d', accel: 620, top: 660, turn: 2.9 };
 
 let nextCarId = 1;
 
-export function makeCar(x, y, angle, modelIdx, opts) {
+export function createCar(rng, type, x, y, angle, opts) {
   const o = opts || {};
-  const model = CAR_MODELS[modelIdx % CAR_MODELS.length];
   return {
-    id: nextCarId++, x, y, angle, speed: 0,
-    model: modelIdx % CAR_MODELS.length,
-    color: o.color || model.color,
-    top: o.top || model.top, accel: o.accel || model.accel,
-    traffic: !!o.traffic, police: !!o.police, parked: !!o.parked,
-    driver: o.driver || null, hp: o.hp || 100, smoke: 0, dead: false,
-    turnCooldown: 0, honk: 0,
+    id: nextCarId,
+    type: type.name,
+    color: o.color || type.color,
+    accel: type.accel,
+    top: type.top,
+    turn: type.turn,
+    x,
+    y,
+    angle,
+    speed: 0,
+    health: o.health || 100,
+    parked: !!o.parked,
+    traffic: !!o.traffic,
+    police: !!o.police,
+    driver: o.driver !== undefined ? o.driver : true,
+    horn: 0,
+    brakeLight: false,
+    // Traffic steering state.
+    axis: o.axis || 'x',
+    road: o.road || 0,
+    dir: o.dir || 1,
+    cruise: o.cruise || 0,
+    stuck: 0,
   };
 }
 
-// Arcade driving: throttle accelerates toward top speed, steering scales with
-// speed, handbrake (Shift) cuts grip for sharp turns. Returns distance moved.
-export function driveCar(car, input, dt) {
-  const dir = car.speed >= 0 ? 1 : -1;
-  if (input.throttle) car.speed += car.accel * dt;
-  if (input.brake) car.speed -= car.accel * 1.4 * dt;
-  if (!input.throttle && !input.brake) car.speed -= Math.sign(car.speed) * 120 * dt;
-  if (input.handbrake) car.speed -= Math.sign(car.speed) * 500 * dt;
-  car.speed = clamp(car.speed, -car.top * 0.4, car.top);
-  if (Math.abs(car.speed) < 4 && !input.throttle) car.speed = 0;
-  const steer = input.steer * (input.handbrake ? 1.9 : 1.15) * clamp(Math.abs(car.speed) / 140, 0, 1);
-  car.angle += steer * dir * 2.1 * dt;
-  const dx = Math.cos(car.angle) * car.speed * dt;
-  const dy = Math.sin(car.angle) * car.speed * dt;
-  car.x = clamp(car.x + dx, 40, WORLD_W - 40);
-  car.y = clamp(car.y + dy, 40, WORLD_H - 40);
-  return Math.hypot(dx, dy);
+export function resetCarIds() {
+  nextCarId = 1;
 }
 
-// Push a car out of any building it overlaps (circle vs rect, car as a disc).
-export function collideBuildings(car, city) {
-  const r = 20;
-  for (const b of city.buildings) {
-    const cx = clamp(car.x, b.x, b.x + b.w);
-    const cy = clamp(car.y, b.y, b.y + b.h);
-    const dx = car.x - cx, dy = car.y - cy;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < r * r && d2 > 0.01) {
-      const d = Math.sqrt(d2);
-      car.x = cx + (dx / d) * r;
-      car.y = cy + (dy / d) * r;
-      if (Math.abs(car.speed) > 240) { car.hp -= 6; car.smoke = 1; }
-      car.speed *= 0.45;
+/** Parked cars along the roads for the player to steal. */
+export function spawnParkedCars(city, rng, count) {
+  const cars = [];
+  let guard = 0;
+  while (cars.length < count && guard < count * 12) {
+    guard += 1;
+    const p = randomRoadPoint(rng);
+    const alongRoad = chance(rng, 0.5);
+    const angle = alongRoad ? (chance(rng, 0.5) ? 0 : Math.PI) : (chance(rng, 0.5) ? Math.PI / 2 : -Math.PI / 2);
+    const lane = (range(rng, 18, 30)) * (chance(rng, 0.5) ? 1 : -1);
+    const x = alongRoad ? p.x + lane : p.x;
+    const y = alongRoad ? p.y : p.y + lane;
+    if (x < 130 || x > WORLD.width - 130 || y < 130 || y > WORLD.height - 130) continue;
+    if (hitsBuilding(city, x, y, 40)) continue;
+    if (cars.some((c) => Math.hypot(c.x - x, c.y - y) < 90)) continue;
+    cars.push(createCar(rng, pick(rng, CAR_TYPES), x, y, angle, { parked: true, driver: false }));
+  }
+  return cars;
+}
+
+/**
+ * One physics step for a driven car. ctrl is {throttle -1..1, steer -1..1,
+ * brake}. Buildings stop the car with a thud; other cars are checked by the
+ * caller (see collideCars) so this stays a pure single-car step.
+ */
+export function updateDrive(G, car, ctrl, dt) {
+  const city = G.city;
+  // Speed is stored as a signed scalar along the car's heading.
+  let speed = car.speed;
+  if (ctrl.throttle > 0) speed += car.accel * ctrl.throttle * dt;
+  else if (ctrl.throttle < 0) {
+    if (speed > 5) speed -= CAR.brake * dt;
+    else speed += car.accel * 0.55 * ctrl.throttle * dt;
+  }
+  if (ctrl.brake) speed -= Math.sign(speed) * CAR.brake * dt;
+  // Drag and rolling resistance.
+  speed -= speed * CAR.drag * dt;
+  if (Math.abs(speed) < 4 && ctrl.throttle === 0) speed = 0;
+  speed = Math.max(-CAR.reverseTop, Math.min(car.top, speed));
+  const steerAuthority = Math.min(1, Math.abs(speed) / 140);
+  car.angle += ctrl.steer * car.turn * steerAuthority * Math.sign(speed || 1) * dt;
+  const nx = car.x + Math.cos(car.angle) * speed * dt;
+  const ny = car.y + Math.sin(car.angle) * speed * dt;
+  const hit = hitsBuilding(city, nx, ny, CAR.length / 2);
+  if (hit) {
+    if (Math.abs(speed) > 180) {
+      G.audio.crash();
+      addDamage(G, car, Math.abs(speed) * 0.02);
+      spawnSparks(G, nx, ny);
+    }
+    speed *= -0.25;
+    car.x = car.x;
+    car.y = car.y;
+  } else {
+    car.x = nx;
+    car.y = ny;
+  }
+  // Stay out of the ocean.
+  if (car.x < city.waterEdge + 26) {
+    car.x = city.waterEdge + 26;
+    speed *= 0.4;
+  }
+  car.x = Math.max(20, Math.min(WORLD.width - 20, car.x));
+  car.y = Math.max(20, Math.min(WORLD.height - 20, car.y));
+  car.speed = speed;
+  car.brakeLight = ctrl.brake || ctrl.throttle < 0;
+  return speed;
+}
+
+/** Damage a car; at 0 health it stops and smokes. */
+export function addDamage(G, car, amount) {
+  car.health -= amount;
+  if (car.health <= 0) {
+    car.health = 0;
+    car.speed = 0;
+  }
+}
+
+export function spawnSparks(G, x, y) {
+  for (let i = 0; i < 8; i += 1) {
+    G.particles.push({
+      x, y,
+      vx: range(G.rng, -160, 160),
+      vy: range(G.rng, -160, 160),
+      life: range(G.rng, 0.2, 0.5),
+      maxLife: 0.5,
+      color: '#ffd23f',
+      size: 3,
+    });
+  }
+}
+
+/** Cheap circle-vs-car collision between two cars; pushes both apart. */
+export function collideCars(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const d = Math.hypot(dx, dy);
+  const min = 58;
+  if (d === 0 || d >= min) return false;
+  const push = (min - d) / 2;
+  const nx = dx / d;
+  const ny = dy / d;
+  a.x -= nx * push;
+  a.y -= ny * push;
+  b.x += nx * push;
+  b.y += ny * push;
+  // Dampen, never swap: swapping speeds every step while the cars still
+  // overlap brakes both of them to a standstill in a single touch.
+  a.speed *= 0.96;
+  b.speed *= 0.96;
+  return true;
+}
+
+/** The nearest drivable car within maxDist of a point (parked or traffic). */
+export function nearestCar(cars, x, y, maxDist) {
+  let best = null;
+  let bestD = maxDist;
+  for (const car of cars) {
+    if (car.police) continue;
+    const d = Math.hypot(car.x - x, car.y - y);
+    if (d < bestD) {
+      bestD = d;
+      best = car;
     }
   }
-}
-
-// A short hop used when a traffic car bumps another car: just slow both down.
-export function carHitsCar(a, b) {
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const d = Math.hypot(dx, dy);
-  if (d < 44 && d > 0.01) {
-    const push = (44 - d) / 2;
-    const nx = dx / d, ny = dy / d;
-    a.x -= nx * push; a.y -= ny * push;
-    b.x += nx * push; b.y += ny * push;
-    a.speed *= 0.6; b.speed *= 0.6;
-    return true;
-  }
-  return false;
-}
-
-export function drawCar(ctx, car) {
-  ctx.save();
-  ctx.translate(car.x, car.y);
-  ctx.rotate(car.angle);
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.fillRect(-24, -12, 50, 28);
-  // Body.
-  ctx.fillStyle = car.color;
-  roundRect(ctx, -24, -13, 48, 26, 7);
-  ctx.fill();
-  // Windshield and rear window.
-  ctx.fillStyle = '#1c2733';
-  ctx.fillRect(6, -10, 8, 20);
-  ctx.fillRect(-16, -10, 6, 20);
-  // Roof.
-  ctx.fillStyle = shade(car.color, -24);
-  roundRect(ctx, -8, -9, 14, 18, 4);
-  ctx.fill();
-  // Headlights and taillights.
-  ctx.fillStyle = '#ffe9a8';
-  ctx.fillRect(22, -11, 3, 5); ctx.fillRect(22, 6, 3, 5);
-  ctx.fillStyle = '#ff3b30';
-  ctx.fillRect(-25, -11, 3, 5); ctx.fillRect(-25, 6, 3, 5);
-  if (car.police) {
-    ctx.fillStyle = '#f2f2f2';
-    ctx.fillRect(-4, -13, 10, 26);
-    ctx.fillStyle = '#ff2d2d';
-    ctx.fillRect(-2, -12, 4, 9);
-    ctx.fillStyle = '#2d7dff';
-    ctx.fillRect(-2, 3, 4, 9);
-    ctx.fillStyle = '#20242c';
-    ctx.font = 'bold 7px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('SCPD', 0, 2);
-  }
-  if (car.smoke > 0.15) {
-    ctx.fillStyle = 'rgba(120,120,120,' + Math.min(0.8, car.smoke) + ')';
-    ctx.beginPath(); ctx.arc(-18, -6, 6 + car.smoke * 8, 0, Math.PI * 2); ctx.fill();
-  }
-  ctx.restore();
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-export function shade(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
-  const r = clamp(((n >> 16) & 255) + amt, 0, 255);
-  const g = clamp(((n >> 8) & 255) + amt, 0, 255);
-  const b = clamp((n & 255) + amt, 0, 255);
-  return 'rgb(' + r + ',' + g + ',' + b + ')';
-}
-
-// Find the nearest stealable car within reach of a point (parked or traffic).
-export function nearestCar(cars, x, y, maxDist) {
-  let best = null, bd = maxDist;
-  for (const c of cars) {
-    if (c.dead || c.police) continue;
-    const d = Math.hypot(c.x - x, c.y - y);
-    if (d < bd) { bd = d; best = c; }
-  }
   return best;
+}
+
+/** A random car type for traffic and mission spawns. */
+export function randomCarType(rng) {
+  return pick(rng, CAR_TYPES);
+}
+
+export function carTypeByName(name) {
+  return CAR_TYPES.find((t) => t.name === name) || CAR_TYPES[0];
+}
+
+/** How many of the world's cars are parked and waiting to be stolen. */
+export function parkedCarCount(cars) {
+  return cars.filter((c) => c.parked).length;
 }

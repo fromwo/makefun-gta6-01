@@ -1,153 +1,252 @@
-// Missions for Solmar Heat: a five-job story chain for Juno and Marco.
-// Each mission is a list of steps; the engine advances a step when its goal is
-// met, pays the reward at the end, and opens the next job. M skips to the next
-// mission (for players who get stuck), forfeiting that job's reward.
-import { MISSIONS, dist } from './config.js';
+// The story: five missions from Juno and Marco, worth $4,400 in all.
+// Each mission is a list of steps; a step completes when the player reaches
+// its marker, steals or delivers the right car, or shoots enough rivals.
+// The module owns the mission state machine and nothing else.
 
-export function createMissionState() {
-  return { index: 0, step: 0, done: false, rivalsLeft: 0, started: false };
+import { MISSION_REWARDS } from './config.js';
+import { range } from './random.js';
+
+export const MISSIONS = [
+  {
+    title: 'First Wheels',
+    giver: 'Juno',
+    brief: 'Juno needs wheels. Steal any car on the street, then bring it to the Marina Bay meet.',
+    reward: MISSION_REWARDS[0],
+    steps: [
+      { kind: 'enterCar', text: 'Steal a car — walk up to one and press E' },
+      { kind: 'goto', x: 320, y: 1200, r: 70, text: 'Drive to the Marina Bay meet' },
+    ],
+  },
+  {
+    title: 'Beach Run',
+    giver: 'Marco',
+    brief: 'A package is waiting on Solmar Beach. Grab it and deliver it Downtown before the sun moves.',
+    reward: MISSION_REWARDS[1],
+    steps: [
+      { kind: 'goto', x: 300, y: 420, r: 70, text: 'Pick up the package on Solmar Beach' },
+      { kind: 'goto', x: 2400, y: 640, r: 80, text: 'Deliver the package to Downtown' },
+    ],
+  },
+  {
+    title: 'Park Cleanup',
+    giver: 'Juno',
+    brief: 'Rivals moved into Palm Park. Take them out on foot, then report back to Juno in Old Town.',
+    reward: MISSION_REWARDS[2],
+    steps: [
+      { kind: 'shoot', count: 4, x: 1050, y: 1800, r: 260, text: 'Clear out 4 rivals in Palm Park' },
+      { kind: 'goto', x: 1040, y: 640, r: 80, text: 'Report back to Juno in Old Town' },
+    ],
+  },
+  {
+    title: 'Harbor Heist',
+    giver: 'Marco',
+    brief: 'A Sunset Convertible is parked at Harbor Pier. Take it, shake the heat, and bring it to the North Hills garage.',
+    reward: MISSION_REWARDS[3],
+    steps: [
+      { kind: 'stealMarked', x: 300, y: 2050, r: 90, text: 'Steal the marked convertible at Harbor Pier' },
+      { kind: 'escape', text: 'Lose the cops — get your wanted level to zero' },
+      { kind: 'goto', x: 2640, y: 1840, r: 80, text: 'Deliver the convertible to the North Hills garage' },
+    ],
+  },
+  {
+    title: 'Solmar Heat',
+    giver: 'Juno & Marco',
+    brief: 'The whole crew is coming for you in Downtown. Survive the ambush, then drive to the pier for the finale.',
+    reward: MISSION_REWARDS[4],
+    steps: [
+      { kind: 'shoot', count: 6, x: 2240, y: 640, r: 320, text: 'Survive the ambush — take out 6 attackers Downtown' },
+      { kind: 'goto', x: 300, y: 2050, r: 90, text: 'Drive to Harbor Pier for the finale' },
+    ],
+  },
+];
+
+export function missionCount() {
+  return MISSIONS.length;
 }
 
-// (Re)start the current mission: apply its startWanted, spawn its rivals.
-export function startMission(G) {
-  const m = MISSIONS[G.missions.index];
-  if (!m) { G.missions.done = true; return; }
-  G.missions.step = 0;
-  G.missions.started = true;
-  G.rivals = [];
-  if (m.startWanted) G.wanted = Math.max(G.wanted, m.startWanted);
-  // Short toast: the full brief would clip at the panel edge.
-  G.toast(m.giver + ': ' + m.title + ' — $' + m.reward + ' reward');
-  G.setObjective(m.steps[0].label);
-  if (m.steps[0].type === 'shoot') spawnRivals(G, m.steps[0]);
+export function currentMission(G) {
+  return MISSIONS[G.mission.index] || null;
 }
 
-export function missionOf(G) {
-  return MISSIONS[G.missions.index] || null;
+/** The objective text and marker for the HUD and the minimap. */
+export function currentObjective(G) {
+  const m = currentMission(G);
+  if (!m) return { text: 'All missions complete — Costa Solmar is yours.', x: null, y: null };
+  const step = m.steps[G.mission.step];
+  if (!step) return { text: m.title, x: null, y: null };
+  return {
+    text: `${m.title} — ${step.text}`,
+    x: step.x !== undefined ? step.x : null,
+    y: step.y !== undefined ? step.y : null,
+    r: step.r || 70,
+  };
 }
 
-export function currentStep(G) {
-  const m = missionOf(G);
-  return m ? m.steps[G.missions.step] : null;
-}
-
-export function missionTarget(G) {
-  const s = currentStep(G);
-  if (!s || s.x === undefined) return null;
-  return { x: s.x, y: s.y, r: s.r || 90 };
-}
-
-function spawnRivals(G, step) {
-  const cx = step.x || 2400, cy = step.y || 1800;
-  G.missions.rivalsLeft = step.count || 5;
-  for (let i = 0; i < (step.count || 5); i++) {
-    const a = (i / (step.count || 5)) * Math.PI * 2;
-    G.rivals.push({
-      x: cx + Math.cos(a) * 130, y: cy + Math.sin(a) * 130,
-      angle: a, hp: 40, fire: 1 + i * 0.3, dead: false, speed: 120,
+/** Spawn rival shooters around a point for 'shoot' steps. */
+export function spawnEnemies(G, x, y, count) {
+  for (let i = 0; i < count; i += 1) {
+    const a = range(G.rng, 0, Math.PI * 2);
+    const d = range(G.rng, 120, 300);
+    G.enemies.push({
+      x: Math.max(120, Math.min(3080, x + Math.cos(a) * d)),
+      y: Math.max(120, Math.min(2280, y + Math.sin(a) * d)),
+      angle: 0,
+      health: 68,
+      speed: 120,
+      shootCd: range(G.rng, 0.6, 1.8),
+      state: 'hunt',
     });
   }
 }
 
-// Called by the game loop every frame while playing.
-export function updateMissions(G, dt) {
-  const m = missionOf(G);
-  if (!m || G.missions.done) return;
-  const s = currentStep(G);
-  if (!s) return;
-  const p = G.player;
-  const px = p.car ? p.car.x : p.x;
-  const py = p.car ? p.car.y : p.y;
-  if (s.type === 'steal') {
-    if (p.car) advanceStep(G);
-  } else if (s.type === 'goto' || s.type === 'drive') {
-    if (s.type === 'drive' && !p.car) return; // deliveries need wheels
-    if (dist(px, py, s.x, s.y) < (s.r || 90)) advanceStep(G);
-  } else if (s.type === 'escape') {
-    if (G.wanted === 0) advanceStep(G);
-  } else if (s.type === 'shoot') {
-    if (G.rivals.length === 0) spawnRivals(G, s);
-    if (G.missions.rivalsLeft <= 0) advanceStep(G);
+function startStep(G) {
+  const m = currentMission(G);
+  if (!m) return;
+  const step = m.steps[G.mission.step];
+  if (!step) return;
+  if (step.kind === 'shoot') {
+    spawnEnemies(G, step.x, step.y, step.count);
+    G.mission.kills = 0;
+    G.mission.needKills = step.count;
   }
-}
-
-function advanceStep(G) {
-  const m = missionOf(G);
-  G.missions.step++;
-  if (G.audio) G.audio.jingle();
-  if (G.missions.step >= m.steps.length) {
-    completeMission(G, m);
-    return;
-  }
-  const s = currentStep(G);
-  G.setObjective(s.label);
-  G.toast('Next: ' + s.label);
-  if (s.type === 'shoot') spawnRivals(G, s);
-}
-
-function completeMission(G, m) {
-  G.player.cash += m.reward;
-  G.stats.missionsDone++;
-  G.toast(m.title + ' complete! +' + '$' + m.reward);
-  G.saveGame();
-  G.missions.index++;
-  if (G.missions.index >= MISSIONS.length) {
-    G.missions.done = true;
-    G.completeGame();
-    return;
-  }
-  startMission(G);
-}
-
-// M: skip the current job (no reward) and open the next one.
-export function skipMission(G) {
-  const m = missionOf(G);
-  if (!m || G.missions.done) return;
-  G.toast('Skipped ' + m.title + ' — no reward for this one');
-  G.rivals = [];
-  G.missions.index++;
-  if (G.missions.index >= MISSIONS.length) {
-    G.missions.done = true;
-    G.completeGame();
-    return;
-  }
-  startMission(G);
-}
-
-// Rivals wander toward the player and shoot; called from the main loop.
-export function updateRivals(G, dt) {
-  const p = G.player;
-  for (const r of G.rivals) {
-    if (r.dead) continue;
-    const d = dist(r.x, r.y, p.x, p.y);
-    if (d > 90) {
-      const a = Math.atan2(p.y - r.y, p.x - r.x);
-      r.x += Math.cos(a) * r.speed * dt;
-      r.y += Math.sin(a) * r.speed * dt;
-      r.angle = a;
+  if (step.kind === 'stealMarked') {
+    // Park the marked convertible at the pier if it is not there yet.
+    if (!G.mission.markedCar) {
+      const { createCar, carTypeByName } = G.vehicleApi;
+      const car = createCar(G.rng, carTypeByName('Sunset Convertible'), step.x, step.y, 0, { parked: true, driver: false });
+      car.marked = true;
+      G.cars.push(car);
+      G.mission.markedCar = car;
     }
   }
 }
 
-export function drawRivals(ctx, G) {
-  for (const r of G.rivals) {
-    if (r.dead) continue;
-    ctx.save();
-    ctx.translate(r.x, r.y);
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.ellipse(0, 5, 9, 5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.rotate(r.angle);
-    ctx.fillStyle = '#8a2f2f';
-    ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#f2c89b';
-    ctx.beginPath(); ctx.arc(2, 0, 5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#222';
-    ctx.fillRect(6, -2, 12, 4);
-    ctx.restore();
-    // Health bar.
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(r.x - 14, r.y - 20, 28, 4);
-    ctx.fillStyle = '#ff5a4a';
-    ctx.fillRect(r.x - 14, r.y - 20, 28 * Math.max(0, r.hp / 40), 4);
+export function startMission(G, index) {
+  G.mission.index = index;
+  G.mission.step = 0;
+  G.mission.kills = 0;
+  G.mission.needKills = 0;
+  G.mission.markedCar = null;
+  G.enemies.length = 0;
+  startStep(G);
+}
+
+function advanceStep(G) {
+  const m = currentMission(G);
+  G.mission.step += 1;
+  G.audio.jingle();
+  if (G.mission.step >= m.steps.length) {
+    completeMission(G, m);
+    return;
+  }
+  startStep(G);
+}
+
+function completeMission(G, m) {
+  G.money += m.reward;
+  G.totalEarned += m.reward;
+  G.missionsDone += 1;
+  G.floaters.push({
+    x: G.player.x, y: G.player.y - 40,
+    text: `Mission complete! +$${m.reward}`,
+    life: 2.2, color: '#7dff8a',
+  });
+  G.audio.jingle();
+  if (G.mission.index + 1 >= MISSIONS.length) {
+    G.screen = 'complete';
+    G.audio.setSiren(false);
+    return;
+  }
+  startMission(G, G.mission.index + 1);
+}
+
+/** Skip to the next mission (M). The current one is abandoned, unpaid. */
+export function skipMission(G) {
+  const m = currentMission(G);
+  if (!m) return;
+  G.floaters.push({ x: G.player.x, y: G.player.y - 40, text: `${m.title} skipped`, life: 1.4, color: '#aab3bd' });
+  if (G.mission.index + 1 >= MISSIONS.length) {
+    G.screen = 'complete';
+    return;
+  }
+  startMission(G, G.mission.index + 1);
+}
+
+/** One mission step per frame: check the current step's completion. */
+export function updateMissions(G, dt) {
+  const m = currentMission(G);
+  if (!m) return;
+  const step = m.steps[G.mission.step];
+  if (!step) return;
+  const p = G.player;
+  if (step.kind === 'goto') {
+    if (Math.hypot(p.x - step.x, p.y - step.y) < step.r) advanceStep(G);
+  } else if (step.kind === 'enterCar') {
+    if (!p.onFoot) advanceStep(G);
+  } else if (step.kind === 'stealMarked') {
+    const car = G.mission.markedCar;
+    if (car && p.car === car) {
+      advanceStep(G);
+    } else if (car && Math.hypot(p.x - car.x, p.y - car.y) < step.r) {
+      // Standing by the marked car hints the player to press E.
+      G.hint = 'Press E to steal the marked convertible';
+      G.hintTimer = 1;
+    }
+  } else if (step.kind === 'escape') {
+    if (G.wanted === 0) advanceStep(G);
+  } else if (step.kind === 'shoot') {
+    if (G.mission.kills >= (G.mission.needKills || step.count)) advanceStep(G);
+  }
+  void dt;
+}
+
+/** Enemies hunt the player and shoot; call every frame during play. */
+export function updateEnemies(G, dt) {
+  const p = G.player;
+  for (let i = G.enemies.length - 1; i >= 0; i -= 1) {
+    const e = G.enemies[i];
+    if (e.health <= 0) continue;
+    const dx = p.x - e.x;
+    const dy = p.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    e.angle = Math.atan2(dy, dx);
+    if (dist > 240) {
+      e.x += Math.cos(e.angle) * e.speed * dt;
+      e.y += Math.sin(e.angle) * e.speed * dt;
+    } else if (dist < 140) {
+      e.x -= Math.cos(e.angle) * e.speed * 0.6 * dt;
+      e.y -= Math.sin(e.angle) * e.speed * 0.6 * dt;
+    }
+    e.shootCd -= dt;
+    if (e.shootCd <= 0 && dist < 460) {
+      e.shootCd = range(G.rng, 1.0, 1.9);
+      const a = e.angle + range(G.rng, -0.1, 0.1);
+      G.bullets.push({
+        x: e.x + Math.cos(a) * 20, y: e.y + Math.sin(a) * 20,
+        vx: Math.cos(a) * 640, vy: Math.sin(a) * 640,
+        life: 0.9, from: 'enemy', damage: 9,
+      });
+      G.audio.enemyShoot();
+    }
+  }
+  // Remove the dead, count the kills.
+  for (let i = G.enemies.length - 1; i >= 0; i -= 1) {
+    if (G.enemies[i].health <= 0) {
+      G.enemies.splice(i, 1);
+      G.mission.kills += 1;
+      G.stats.kills += 1;
+    }
+  }
+}
+
+/** Mission 4's getaway: once the marked car is stolen, the heat is on. */
+export function onMarkedCarStolen(G) {
+  if (currentMission(G) && currentMission(G).title === 'Harbor Heist') {
+    // Two stars for the heist, on top of the one stealing the car earned.
+    if (G.wanted < 2) {
+      G.wanted = 2;
+      G.crimeTimer = 0;
+      G.audio.setSiren(true);
+    }
   }
 }
