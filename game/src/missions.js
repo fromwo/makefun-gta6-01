@@ -1,252 +1,233 @@
-// The story: five missions from Juno and Marco, worth $4,400 in all.
-// Each mission is a list of steps; a step completes when the player reaches
-// its marker, steals or delivers the right car, or shoots enough rivals.
-// The module owns the mission state machine and nothing else.
-
-import { MISSION_REWARDS } from './config.js';
-import { range } from './random.js';
+// The story: five jobs for Juno and Marco across Costa Solmar, $4,400 in
+// all. Each mission is a small state machine — go somewhere, collect
+// something, survive the heat, escape — and the HUD always shows the
+// current objective and its marker.
+import { BANK, HIDEOUT, MISSION_REWARDS, PIER } from './config.js';
+import { dist2 } from './random.js';
+import { addWanted, playerPos } from './player.js';
+import { clearPolice } from './police.js';
 
 export const MISSIONS = [
   {
-    title: 'First Wheels',
-    giver: 'Juno',
-    brief: 'Juno needs wheels. Steal any car on the street, then bring it to the Marina Bay meet.',
+    id: 1, giver: 'Juno', title: 'First Wheels',
+    brief: 'Juno needs wheels. Borrow any car and bring it to her garage.',
     reward: MISSION_REWARDS[0],
-    steps: [
-      { kind: 'enterCar', text: 'Steal a car — walk up to one and press E' },
-      { kind: 'goto', x: 320, y: 1200, r: 70, text: 'Drive to the Marina Bay meet' },
+    stages: [
+      { type: 'steal', text: 'Get in any car (E)' },
+      { type: 'goto', x: HIDEOUT.x, y: HIDEOUT.y, r: 110, text: 'Drive to Juno\u2019s Garage' },
     ],
   },
   {
-    title: 'Beach Run',
-    giver: 'Marco',
-    brief: 'A package is waiting on Solmar Beach. Grab it and deliver it Downtown before the sun moves.',
+    id: 2, giver: 'Juno', title: 'Beach Run',
+    brief: 'A package for the Old Pier. Drive it down to the beach, no questions.',
     reward: MISSION_REWARDS[1],
-    steps: [
-      { kind: 'goto', x: 300, y: 420, r: 70, text: 'Pick up the package on Solmar Beach' },
-      { kind: 'goto', x: 2400, y: 640, r: 80, text: 'Deliver the package to Downtown' },
+    stages: [
+      { type: 'goto', x: PIER.x, y: PIER.y, r: 100, text: 'Deliver the package to the Old Pier' },
     ],
   },
   {
-    title: 'Park Cleanup',
-    giver: 'Juno',
-    brief: 'Rivals moved into Palm Park. Take them out on foot, then report back to Juno in Old Town.',
+    id: 3, giver: 'Marco', title: 'Marco\u2019s Debt',
+    brief: 'Marco stashed three cash drops around the Strip. Pick them all up.',
     reward: MISSION_REWARDS[2],
-    steps: [
-      { kind: 'shoot', count: 4, x: 1050, y: 1800, r: 260, text: 'Clear out 4 rivals in Palm Park' },
-      { kind: 'goto', x: 1040, y: 640, r: 80, text: 'Report back to Juno in Old Town' },
+    stages: [
+      { type: 'collect', count: 3, text: 'Collect the cash drops (0/3)' },
     ],
   },
   {
-    title: 'Harbor Heist',
-    giver: 'Marco',
-    brief: 'A Sunset Convertible is parked at Harbor Pier. Take it, shake the heat, and bring it to the North Hills garage.',
+    id: 4, giver: 'Marco', title: 'Heat Wave',
+    brief: 'The SCPD is all over the Strip. Make noise, hit 3 stars, then lose them.',
     reward: MISSION_REWARDS[3],
-    steps: [
-      { kind: 'stealMarked', x: 300, y: 2050, r: 90, text: 'Steal the marked convertible at Harbor Pier' },
-      { kind: 'escape', text: 'Lose the cops — get your wanted level to zero' },
-      { kind: 'goto', x: 2640, y: 1840, r: 80, text: 'Deliver the convertible to the North Hills garage' },
+    stages: [
+      { type: 'wanted', level: 3, text: 'Raise your wanted level to 3 stars' },
+      { type: 'escape', x: HIDEOUT.x, y: HIDEOUT.y, r: 110, text: 'Lose the heat — reach Juno\u2019s Garage' },
     ],
   },
   {
-    title: 'Solmar Heat',
-    giver: 'Juno & Marco',
-    brief: 'The whole crew is coming for you in Downtown. Survive the ambush, then drive to the pier for the finale.',
+    id: 5, giver: 'Juno', title: 'Solmar Heist',
+    brief: 'One last job: hit the bank, grab the cash, and vanish into the garage.',
     reward: MISSION_REWARDS[4],
-    steps: [
-      { kind: 'shoot', count: 6, x: 2240, y: 640, r: 320, text: 'Survive the ambush — take out 6 attackers Downtown' },
-      { kind: 'goto', x: 300, y: 2050, r: 90, text: 'Drive to Harbor Pier for the finale' },
+    stages: [
+      { type: 'goto', x: BANK.x, y: BANK.y, r: 110, text: 'Reach Solmar National Bank' },
+      { type: 'grab', text: 'Grab the cash — the alarm is ringing!' },
+      { type: 'escape', x: HIDEOUT.x, y: HIDEOUT.y, r: 110, text: 'Escape to Juno\u2019s Garage with the cash' },
     ],
   },
 ];
 
-export function missionCount() {
-  return MISSIONS.length;
-}
-
-export function currentMission(G) {
-  return MISSIONS[G.mission.index] || null;
-}
-
-/** The objective text and marker for the HUD and the minimap. */
-export function currentObjective(G) {
-  const m = currentMission(G);
-  if (!m) return { text: 'All missions complete — Costa Solmar is yours.', x: null, y: null };
-  const step = m.steps[G.mission.step];
-  if (!step) return { text: m.title, x: null, y: null };
+export function createMissions() {
   return {
-    text: `${m.title} — ${step.text}`,
-    x: step.x !== undefined ? step.x : null,
-    y: step.y !== undefined ? step.y : null,
-    r: step.r || 70,
+    index: 0,
+    stage: 0,
+    timer: 0,
+    collected: 0,
+    started: false,
+    done: false,
+    drops: [],
+    message: '',
   };
 }
 
-/** Spawn rival shooters around a point for 'shoot' steps. */
-export function spawnEnemies(G, x, y, count) {
-  for (let i = 0; i < count; i += 1) {
-    const a = range(G.rng, 0, Math.PI * 2);
-    const d = range(G.rng, 120, 300);
-    G.enemies.push({
-      x: Math.max(120, Math.min(3080, x + Math.cos(a) * d)),
-      y: Math.max(120, Math.min(2280, y + Math.sin(a) * d)),
-      angle: 0,
-      health: 68,
-      speed: 120,
-      shootCd: range(G.rng, 0.6, 1.8),
-      state: 'hunt',
-    });
-  }
+export function currentMission(missions) {
+  if (missions.done || missions.index >= MISSIONS.length) return null;
+  return MISSIONS[missions.index];
 }
 
-function startStep(G) {
-  const m = currentMission(G);
-  if (!m) return;
-  const step = m.steps[G.mission.step];
-  if (!step) return;
-  if (step.kind === 'shoot') {
-    spawnEnemies(G, step.x, step.y, step.count);
-    G.mission.kills = 0;
-    G.mission.needKills = step.count;
+export function currentStage(missions) {
+  const m = currentMission(missions);
+  if (!m) return null;
+  return m.stages[missions.stage] || null;
+}
+
+export function objectiveText(game) {
+  const ms = game.missions;
+  const m = currentMission(ms);
+  if (!m) return 'All jobs done — Costa Solmar is yours.';
+  const stage = currentStage(ms);
+  if (!stage) return m.title;
+  if (stage.type === 'collect') return `Collect the cash drops (${ms.collected}/3)`;
+  return stage.text;
+}
+
+export function objectiveTarget(game) {
+  const ms = game.missions;
+  const stage = currentStage(ms);
+  if (!stage) return null;
+  if (stage.type === 'collect') {
+    for (const d of ms.drops) if (!d.taken) return { x: d.x, y: d.y };
+    return null;
   }
-  if (step.kind === 'stealMarked') {
-    // Park the marked convertible at the pier if it is not there yet.
-    if (!G.mission.markedCar) {
-      const { createCar, carTypeByName } = G.vehicleApi;
-      const car = createCar(G.rng, carTypeByName('Sunset Convertible'), step.x, step.y, 0, { parked: true, driver: false });
-      car.marked = true;
-      G.cars.push(car);
-      G.mission.markedCar = car;
+  if (stage.x !== undefined) return { x: stage.x, y: stage.y };
+  return null;
+}
+
+// Start (or restart) the current mission: place its collect drops, reset
+// its timer, and announce the brief.
+export function startMission(game) {
+  const ms = game.missions;
+  const m = currentMission(ms);
+  if (!m) return;
+  ms.stage = 0;
+  ms.timer = 0;
+  ms.collected = 0;
+  ms.drops = [];
+  ms.started = true;
+  if (m.id === 3) {
+    const spots = [
+      { x: 2100, y: 1000 }, { x: 2400, y: 1500 }, { x: 1950, y: 1950 },
+    ];
+    for (const s of spots) {
+      const drop = { x: s.x, y: s.y, amount: 0, kind: 'drop', taken: false };
+      ms.drops.push(drop);
+      game.pickups.push(drop);
     }
   }
+  game.addMessage(`${m.giver}: ${m.brief}`, '#f2c94c');
+  game.audio.click();
 }
 
-export function startMission(G, index) {
-  G.mission.index = index;
-  G.mission.step = 0;
-  G.mission.kills = 0;
-  G.mission.needKills = 0;
-  G.mission.markedCar = null;
-  G.enemies.length = 0;
-  startStep(G);
+function advanceStage(game) {
+  const ms = game.missions;
+  ms.stage += 1;
+  ms.timer = 0;
+  const m = currentMission(ms);
+  if (!m) return;
+  const stage = m.stages[ms.stage];
+  if (stage) game.addMessage(stage.text, '#aab3c0');
 }
 
-function advanceStep(G) {
-  const m = currentMission(G);
-  G.mission.step += 1;
-  G.audio.jingle();
-  if (G.mission.step >= m.steps.length) {
-    completeMission(G, m);
+function completeMission(game) {
+  const ms = game.missions;
+  const m = currentMission(ms);
+  if (!m) return;
+  game.player.money += m.reward;
+  game.stats.earned += m.reward;
+  game.addMessage(`Job done: ${m.title} — +$${m.reward}`, '#58c184');
+  game.audio.missionDone();
+  ms.index += 1;
+  ms.stage = 0;
+  ms.timer = 0;
+  ms.collected = 0;
+  ms.drops = [];
+  if (ms.index >= MISSIONS.length) {
+    ms.done = true;
+    game.events.complete = true;
+    game.addMessage('All five jobs done. Costa Solmar is yours!', '#58c184');
+  } else {
+    startMission(game);
+  }
+  game.saveSoon = true;
+}
+
+// One fixed step of the mission state machine. `crime` is set by the
+// caller when the player just stole a car.
+export function updateMissions(game, dt) {
+  const ms = game.missions;
+  if (ms.done || !ms.started) return;
+  const m = currentMission(ms);
+  if (!m) return;
+  const stage = currentStage(ms);
+  if (!stage) { completeMission(game); return; }
+  const pos = playerPos(game);
+  ms.timer += dt;
+
+  if (stage.type === 'steal') {
+    if (game.player.inCar) advanceStage(game);
     return;
   }
-  startStep(G);
-}
-
-function completeMission(G, m) {
-  G.money += m.reward;
-  G.totalEarned += m.reward;
-  G.missionsDone += 1;
-  G.floaters.push({
-    x: G.player.x, y: G.player.y - 40,
-    text: `Mission complete! +$${m.reward}`,
-    life: 2.2, color: '#7dff8a',
-  });
-  G.audio.jingle();
-  if (G.mission.index + 1 >= MISSIONS.length) {
-    G.screen = 'complete';
-    G.audio.setSiren(false);
+  if (stage.type === 'goto' || stage.type === 'escape') {
+    if (dist2(pos.x, pos.y, stage.x, stage.y) < stage.r * stage.r) {
+      if (stage.type === 'escape' && game.player.wanted > 0) {
+        game.player.wanted = 0;
+        clearPolice(game);
+        game.addMessage('You slipped away. Heat is off.', '#58c184');
+      }
+      if (ms.stage + 1 >= m.stages.length) completeMission(game);
+      else advanceStage(game);
+    }
     return;
   }
-  startMission(G, G.mission.index + 1);
-}
-
-/** Skip to the next mission (M). The current one is abandoned, unpaid. */
-export function skipMission(G) {
-  const m = currentMission(G);
-  if (!m) return;
-  G.floaters.push({ x: G.player.x, y: G.player.y - 40, text: `${m.title} skipped`, life: 1.4, color: '#aab3bd' });
-  if (G.mission.index + 1 >= MISSIONS.length) {
-    G.screen = 'complete';
+  if (stage.type === 'collect') {
+    // Walking or driving over a drop pockets it.
+    for (const d of ms.drops) {
+      if (!d.taken && dist2(pos.x, pos.y, d.x, d.y) < 46 * 46) {
+        d.taken = true;
+        game.audio.pickup();
+        game.addMessage('Cash drop collected.', '#58c184');
+      }
+    }
+    let got = 0;
+    for (const d of ms.drops) if (d.taken) got += 1;
+    ms.collected = got;
+    if (got >= stage.count) {
+      if (ms.stage + 1 >= m.stages.length) completeMission(game);
+      else advanceStage(game);
+    }
     return;
   }
-  startMission(G, G.mission.index + 1);
-}
-
-/** One mission step per frame: check the current step's completion. */
-export function updateMissions(G, dt) {
-  const m = currentMission(G);
-  if (!m) return;
-  const step = m.steps[G.mission.step];
-  if (!step) return;
-  const p = G.player;
-  if (step.kind === 'goto') {
-    if (Math.hypot(p.x - step.x, p.y - step.y) < step.r) advanceStep(G);
-  } else if (step.kind === 'enterCar') {
-    if (!p.onFoot) advanceStep(G);
-  } else if (step.kind === 'stealMarked') {
-    const car = G.mission.markedCar;
-    if (car && p.car === car) {
-      advanceStep(G);
-    } else if (car && Math.hypot(p.x - car.x, p.y - car.y) < step.r) {
-      // Standing by the marked car hints the player to press E.
-      G.hint = 'Press E to steal the marked convertible';
-      G.hintTimer = 1;
+  if (stage.type === 'wanted') {
+    if (game.player.wanted >= stage.level) {
+      if (ms.stage + 1 >= m.stages.length) completeMission(game);
+      else advanceStage(game);
     }
-  } else if (step.kind === 'escape') {
-    if (G.wanted === 0) advanceStep(G);
-  } else if (step.kind === 'shoot') {
-    if (G.mission.kills >= (G.mission.needKills || step.count)) advanceStep(G);
+    return;
   }
-  void dt;
-}
-
-/** Enemies hunt the player and shoot; call every frame during play. */
-export function updateEnemies(G, dt) {
-  const p = G.player;
-  for (let i = G.enemies.length - 1; i >= 0; i -= 1) {
-    const e = G.enemies[i];
-    if (e.health <= 0) continue;
-    const dx = p.x - e.x;
-    const dy = p.y - e.y;
-    const dist = Math.hypot(dx, dy);
-    e.angle = Math.atan2(dy, dx);
-    if (dist > 240) {
-      e.x += Math.cos(e.angle) * e.speed * dt;
-      e.y += Math.sin(e.angle) * e.speed * dt;
-    } else if (dist < 140) {
-      e.x -= Math.cos(e.angle) * e.speed * 0.6 * dt;
-      e.y -= Math.sin(e.angle) * e.speed * 0.6 * dt;
-    }
-    e.shootCd -= dt;
-    if (e.shootCd <= 0 && dist < 460) {
-      e.shootCd = range(G.rng, 1.0, 1.9);
-      const a = e.angle + range(G.rng, -0.1, 0.1);
-      G.bullets.push({
-        x: e.x + Math.cos(a) * 20, y: e.y + Math.sin(a) * 20,
-        vx: Math.cos(a) * 640, vy: Math.sin(a) * 640,
-        life: 0.9, from: 'enemy', damage: 9,
-      });
-      G.audio.enemyShoot();
-    }
-  }
-  // Remove the dead, count the kills.
-  for (let i = G.enemies.length - 1; i >= 0; i -= 1) {
-    if (G.enemies[i].health <= 0) {
-      G.enemies.splice(i, 1);
-      G.mission.kills += 1;
-      G.stats.kills += 1;
+  if (stage.type === 'grab') {
+    if (ms.timer > 1.2) {
+      game.player.money += 250;
+      addWanted(game, 3);
+      game.addMessage('Alarm! Grabbed $250 — now run!', '#e5534b');
+      if (ms.stage + 1 >= m.stages.length) completeMission(game);
+      else advanceStage(game);
     }
   }
 }
 
-/** Mission 4's getaway: once the marked car is stolen, the heat is on. */
-export function onMarkedCarStolen(G) {
-  if (currentMission(G) && currentMission(G).title === 'Harbor Heist') {
-    // Two stars for the heist, on top of the one stealing the car earned.
-    if (G.wanted < 2) {
-      G.wanted = 2;
-      G.crimeTimer = 0;
-      G.audio.setSiren(true);
-    }
-  }
+// M: start the next job early when the current one is already done, or
+// repeat the current brief when it is still running.
+export function nextMission(game) {
+  const ms = game.missions;
+  if (ms.done) { game.addMessage('All jobs done — free roam!', '#58c184'); return; }
+  if (!ms.started) { startMission(game); return; }
+  const m = currentMission(ms);
+  if (m) game.addMessage(`${m.giver}: ${m.brief}`, '#f2c94c');
 }

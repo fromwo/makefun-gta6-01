@@ -1,62 +1,49 @@
-// Keyboard and pointer input. Held keys are a live set; one-shot presses
-// (enter a car, horn, pause, mute, next mission, recover, title) are queued
-// in an action bitmask the loop consumes once per frame, so a press between
-// two frames is never lost and never counted twice.
+// Keyboard and mouse input. Held keys are read every step; one-shot
+// presses (interact, pause, horn, mute, next mission, restore, title) are
+// queued as flags and taken once by the loop, so a press between two frames
+// is never lost and never counted twice. The test hooks let the headless
+// self-test drive the same input path a real player uses.
+export const ACT_INTERACT = 1;
+export const ACT_PAUSE = 2;
+export const ACT_CONFIRM = 4;
+export const ACT_HORN = 8;
+export const ACT_MUTE = 16;
+export const ACT_NEXT_MISSION = 32;
+export const ACT_RESTORE = 64;
+export const ACT_TITLE = 128;
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
-export const ACTION_ENTER = 4;
-export const ACTION_HORN = 8;
-export const ACTION_NEXT_MISSION = 16;
-export const ACTION_MUTE = 32;
-export const ACTION_RECOVER = 64;
-export const ACTION_TITLE = 128;
-
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-const ENTER = new Set(['KeyE']);
-const HORN = new Set(['KeyH']);
-const NEXT_MISSION = new Set(['KeyM']);
-const MUTE = new Set(['KeyN']);
-const RECOVER = new Set(['KeyR']);
-const TITLE = new Set(['KeyQ']);
+const UP = new Set(['KeyW', 'ArrowUp']);
+const DOWN = new Set(['KeyS', 'ArrowDown']);
+const LEFT = new Set(['KeyA', 'ArrowLeft']);
+const RIGHT = new Set(['KeyD', 'ArrowRight']);
 
 export function createInput(canvas) {
-  const down = new Set();
-  const pressed = new Set();
-  const mouse = { x: 0, y: 0, down: false, clicked: false, worldX: 0, worldY: 0 };
+  const keys = new Set();
+  const mouse = { x: 0, y: 0, down: false, clicked: false };
   let actions = 0;
 
-  function note(code) {
-    if (CONFIRM.has(code)) actions |= ACTION_CONFIRM;
-    else if (PAUSE.has(code)) actions |= ACTION_PAUSE;
-    else if (ENTER.has(code)) actions |= ACTION_ENTER;
-    else if (HORN.has(code)) actions |= ACTION_HORN;
-    else if (NEXT_MISSION.has(code)) actions |= ACTION_NEXT_MISSION;
-    else if (MUTE.has(code)) actions |= ACTION_MUTE;
-    else if (RECOVER.has(code)) actions |= ACTION_RECOVER;
-    else if (TITLE.has(code)) actions |= ACTION_TITLE;
-    else return;
-    pressed.add(code);
+  function press(code) {
+    if (code === 'KeyE') actions |= ACT_INTERACT;
+    else if (code === 'KeyP' || code === 'Escape') actions |= ACT_PAUSE;
+    else if (code === 'Enter' || code === 'Space') actions |= ACT_CONFIRM;
+    else if (code === 'KeyH') actions |= ACT_HORN;
+    else if (code === 'KeyN') actions |= ACT_MUTE;
+    else if (code === 'KeyM') actions |= ACT_NEXT_MISSION;
+    else if (code === 'KeyR') actions |= ACT_RESTORE;
+    else if (code === 'KeyQ') actions |= ACT_TITLE;
   }
 
   window.addEventListener('keydown', (event) => {
     if (event.repeat) return;
-    down.add(event.code);
-    note(event.code);
-    if (CONFIRM.has(event.code) || PAUSE.has(event.code) || event.code === 'Space') {
+    keys.add(event.code);
+    press(event.code);
+    if (UP.has(event.code) || DOWN.has(event.code) || LEFT.has(event.code) || RIGHT.has(event.code) || event.code === 'Space') {
       event.preventDefault();
     }
   });
-  window.addEventListener('keyup', (event) => {
-    down.delete(event.code);
-  });
-  // A key released while the tab is hidden never sends keyup: let go of
-  // everything on blur so the player never keeps driving into a wall.
-  window.addEventListener('blur', () => {
-    down.clear();
-    mouse.down = false;
-  });
+  window.addEventListener('keyup', (event) => keys.delete(event.code));
+  window.addEventListener('blur', () => keys.clear());
+
   canvas.addEventListener('pointermove', (event) => {
     const rect = canvas.getBoundingClientRect();
     mouse.x = event.clientX - rect.left;
@@ -68,53 +55,34 @@ export function createInput(canvas) {
     mouse.y = event.clientY - rect.top;
     mouse.down = true;
     mouse.clicked = true;
-    actions |= ACTION_CONFIRM;
+    if (event.button === 0) actions |= ACT_CONFIRM;
   });
-  window.addEventListener('pointerup', () => {
-    mouse.down = false;
-  });
+  window.addEventListener('pointerup', () => { mouse.down = false; });
 
   return {
+    keys,
     mouse,
-    isDown(code) {
-      return down.has(code);
-    },
-    wasPressed(code) {
-      return pressed.has(code);
-    },
-    /** -1/0/1 on each axis from WASD and the arrow keys. */
-    moveAxis() {
-      const x = (down.has('KeyD') || down.has('ArrowRight') ? 1 : 0) - (down.has('KeyA') || down.has('ArrowLeft') ? 1 : 0);
-      const y = (down.has('KeyS') || down.has('ArrowDown') ? 1 : 0) - (down.has('KeyW') || down.has('ArrowUp') ? 1 : 0);
+    axis() {
+      const x = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+      const y = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0);
       return { x, y };
     },
-    running() {
-      return down.has('ShiftLeft') || down.has('ShiftRight');
+    sprint() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
+    takeActions() { const taken = actions; actions = 0; return taken; },
+    takeClick() { const c = mouse.clicked; mouse.clicked = false; return c; },
+    isDown(code) { return keys.has(code); },
+    // Headless-test hooks: same path as a real key press.
+    setKey(code, down) {
+      if (down) { keys.add(code); press(code); }
+      else keys.delete(code);
     },
-    /** The one-shot action flags since the last call. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-    /** Clear the per-frame pressed set; called once per frame by the loop. */
-    endFrame() {
-      pressed.clear();
-      mouse.clicked = false;
-    },
-    /** Scripted-play hooks: pretend a key is held or pressed. */
-    pressKey(code) {
-      down.add(code);
-      note(code);
-    },
-    releaseKey(code) {
-      down.delete(code);
-    },
-    /** Release every held key at once (respawns, scene changes). */
-    clearAll() {
-      down.clear();
-      mouse.down = false;
-      actions = 0;
-    },
+    setMouse(x, y, down) { mouse.x = x; mouse.y = y; mouse.down = down; if (down) mouse.clicked = true; },
   };
+}
+
+// Keys that move the player or a car; used by the title screen hint and
+// by the self-test to decide when a key press should wake the audio.
+export const MOVE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+export function isMoveKey(code) {
+  return MOVE_KEYS.includes(code);
 }

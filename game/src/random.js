@@ -1,6 +1,6 @@
-// A small seeded random number generator (mulberry32): the same seed gives
-// the same city, the same traffic and the same screenshot scene, which is
-// what makes ?shot= repeatable and ?selftest=1 deterministic.
+// A small seeded random generator (mulberry32) plus the helpers the city
+// builder and the traffic use. The same seed always builds the same city,
+// which is what makes the screenshot scenes repeatable.
 export function createRandom(seed) {
   let a = seed | 0;
   return function random() {
@@ -11,31 +11,51 @@ export function createRandom(seed) {
   };
 }
 
-/** A float in [min, max). */
-export function range(rng, min, max) {
-  return min + rng() * (max - min);
+export function range(random, min, max) {
+  return min + random() * (max - min);
 }
 
-/** An integer in [min, max] inclusive. */
-export function int(rng, min, max) {
-  return min + Math.floor(rng() * (max - min + 1));
+export function rangeInt(random, min, max) {
+  return min + Math.floor(random() * (max - min + 1));
 }
 
-/** One element of an array, uniformly. */
-export function pick(rng, array) {
-  return array[Math.floor(rng() * array.length)];
+export function pick(random, list) {
+  return list[Math.floor(random() * list.length)];
 }
 
-/** True with probability p (0..1). */
-export function chance(rng, p) {
-  return rng() < p;
+export function chance(random, p) {
+  return random() < p;
 }
 
-/** A shuffled copy of an array. */
-export function shuffle(rng, array) {
-  const out = array.slice();
+export function clamp(value, min, max) {
+  return value < min ? min : value > max ? max : value;
+}
+
+export function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+export function angleLerp(a, b, t) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+export function dist2(ax, ay, bx, by) {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return dx * dx + dy * dy;
+}
+
+export function angleTo(ax, ay, bx, by) {
+  return Math.atan2(by - ay, bx - ax);
+}
+
+export function shuffle(random, list) {
+  const out = list.slice();
   for (let i = out.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     const tmp = out[i];
     out[i] = out[j];
     out[j] = tmp;
@@ -43,7 +63,13 @@ export function shuffle(rng, array) {
   return out;
 }
 
-/** Clamp a value into [min, max]. */
-export function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
+export function weightedPick(random, entries) {
+  let total = 0;
+  for (const [, w] of entries) total += w;
+  let roll = random() * total;
+  for (const [value, w] of entries) {
+    roll -= w;
+    if (roll <= 0) return value;
+  }
+  return entries[entries.length - 1][0];
 }

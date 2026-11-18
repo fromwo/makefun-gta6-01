@@ -2,23 +2,24 @@
 node_modules/
 out/
 dist/
-build/
+.output/
 
-# Editor and OS clutter
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
-
-# Logs and local test output
+# Local tooling and logs
 *.log
 *.tmp
-*.orig
-*.rej
-coverage/
-.nyc_output/
+.DS_Store
+Thumbs.db
 
-# Local environment
-.env
-.env.local
+# Editor and OS clutter
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local test and screenshot scratch (the shipped shots live in screenshots/)
+/tmp/
+coverage/
+
+# Keep the shipped screenshots and the save-free game tracked; only the
+# scratch above stays out of the repository.
+!screenshots/

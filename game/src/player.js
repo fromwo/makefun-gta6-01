@@ -1,236 +1,189 @@
-// The player, on foot and behind the wheel: movement, stealing cars,
-// shooting, and taking damage. The player is the one thing the camera
-// follows, and the one thing the police chase.
+// The player on foot: walking, running, aiming with the mouse, shooting,
+// stealing cars and picking up street cash. Driving itself lives in
+// vehicles.js; this module decides when the player is in a car and what
+// happens when they step out of one.
+import { CAR, PLAYER } from './config.js';
+import { clamp, dist2 } from './random.js';
+import { collideCircle } from './city.js';
+import { createCar, driveCar, nearestCar } from './vehicles.js';
 
-import { CAR, PLAYER, WANTED } from './config.js';
-import { addDamage, nearestCar, spawnSparks, updateDrive } from './vehicles.js';
-import { districtAt, nearestRoadPoint, resolveSolids } from './city.js';
-import { range } from './random.js';
-
-export function createPlayer(city) {
-  const start = nearestRoadPoint(640, 640);
+export function createPlayer(x, y) {
   return {
-    x: start.x,
-    y: start.y + 60,
-    angle: -Math.PI / 2,
-    onFoot: true,
-    car: null,
-    health: PLAYER.health,
-    shootCd: 0,
-    invuln: 0,
-    dead: false,
-    aimAngle: 0,
+    x, y, angle: -Math.PI / 2,
+    hp: PLAYER.maxHp,
+    money: PLAYER.startMoney,
+    ammo: PLAYER.startAmmo,
+    wanted: 0,
+    inCar: null,
+    shootTimer: 0,
+    hurtTimer: 0,
     walkPhase: 0,
+    moving: false,
+    hideTimer: 0,
   };
 }
 
-export function updatePlayer(G, dt) {
-  const p = G.player;
-  const input = G.input;
-  if (p.invuln > 0) p.invuln -= dt;
-  if (p.shootCd > 0) p.shootCd -= dt;
-  if (p.onFoot) updateOnFoot(G, dt);
-  else updateDriving(G, dt);
-  // Aim follows the mouse in world space.
-  const cam = G.camera;
-  const scale = G.viewScale || 1;
-  const mx = (input.mouse.x - G.canvasCssW / 2) / scale + cam.x;
-  const my = (input.mouse.y - G.canvasCssH / 2) / scale + cam.y;
-  input.mouse.worldX = mx;
-  input.mouse.worldY = my;
-  p.aimAngle = Math.atan2(my - p.y, mx - p.x);
-  // Shooting: hold the mouse button to fire toward the cursor.
-  if (input.mouse.down && p.shootCd <= 0) fireWeapon(G);
-  // Pick up cash and health lying on the street.
-  for (const pk of G.pickups) {
-    if (pk.taken) continue;
-    if (Math.hypot(pk.x - p.x, pk.y - p.y) < 34) {
-      pk.taken = true;
-      if (pk.kind === 'cash') {
-        G.money += pk.amount;
-        G.stats.cashPicked += pk.amount;
-        G.audio.pickup();
-        G.floaters.push({ x: p.x, y: p.y - 20, text: `+$${pk.amount}`, life: 1.2, color: '#7dff8a' });
-      } else {
-        p.health = Math.min(PLAYER.health, p.health + 40);
-        G.audio.pickup();
-        G.floaters.push({ x: p.x, y: p.y - 20, text: '+40 HP', life: 1.2, color: '#7dd7ff' });
-      }
-    }
-  }
+export function playerPos(game) {
+  if (game.player.inCar) return game.player.inCar;
+  return game.player;
 }
 
-function updateOnFoot(G, dt) {
-  const p = G.player;
-  const input = G.input;
-  const axis = input.moveAxis();
-  const speed = input.running() ? PLAYER.runSpeed : PLAYER.walkSpeed;
-  let vx = axis.x;
-  let vy = axis.y;
-  const len = Math.hypot(vx, vy);
-  if (len > 0) {
-    vx = (vx / len) * speed;
-    vy = (vy / len) * speed;
-    p.angle = Math.atan2(vy, vx);
-    p.walkPhase += dt * 10;
-    G.stats.distance += speed * dt;
-  }
-  p.x += vx * dt;
-  p.y += vy * dt;
-  resolveSolids(G.city, p, PLAYER.radius);
-  if (p.x < G.city.waterEdge + 14) p.x = G.city.waterEdge + 14;
+export function addWanted(game, n) {
+  const p = game.player;
+  p.wanted = clamp(p.wanted + n, 0, 5);
+  if (p.wanted > 0) p.hideTimer = 0;
 }
 
-function updateDriving(G, dt) {
-  const p = G.player;
-  const car = p.car;
-  if (!car) {
-    p.onFoot = true;
-    return;
-  }
-  const input = G.input;
-  const axis = input.moveAxis();
-  const ctrl = {
-    throttle: axis.y < 0 ? 1 : axis.y > 0 ? -1 : 0,
-    steer: axis.x,
-    brake: input.running(),
-  };
-  const before = car.speed;
-  updateDrive(G, car, ctrl, dt);
-  if (Math.abs(car.speed - before) > 260 && Math.abs(car.speed) < 60) {
-    // A hard stop into something solid.
-    G.audio.crash();
-  }
-  p.x = car.x;
-  p.y = car.y;
-  p.angle = car.angle;
-  G.stats.distance += Math.abs(car.speed) * dt;
-  G.audio.setEngine(Math.abs(car.speed) / car.top);
-  if (car.health <= 0) {
-    // A wrecked car stalls; the player has to get out and walk.
-    car.speed = 0;
-    G.audio.setEngine(0);
-  }
+export function hurtPlayer(game, amount, source) {
+  const p = game.player;
+  if (p.hurtTimer > 0 || p.hp <= 0) return;
+  p.hp = Math.max(0, p.hp - amount);
+  p.hurtTimer = 0.5;
+  game.audio.hit();
+  game.addMessage(source ? `Hit by ${source}!` : 'You were hit!', '#e5534b');
+  if (p.hp <= 0) game.events.dead = true;
 }
 
-/** E: get in the nearest car, or get out of the one being driven. */
-export function tryEnterExitCar(G) {
-  const p = G.player;
-  if (!p.onFoot) {
-    const car = p.car;
-    p.car = null;
-    p.onFoot = true;
-    p.x = car.x + Math.cos(car.angle + Math.PI / 2) * 46;
-    p.y = car.y + Math.sin(car.angle + Math.PI / 2) * 46;
-    resolveSolids(G.city, p, PLAYER.radius);
-    car.parked = true;
-    car.driver = false;
-    G.audio.setEngine(0);
-    return 'exit';
-  }
-  const car = nearestCar(G.cars, p.x, p.y, 78);
-  if (!car) return 'none';
-  const wasParked = car.parked;
-  car.parked = false;
-  car.traffic = false;
-  car.driver = true;
-  p.car = car;
-  p.onFoot = false;
-  p.x = car.x;
-  p.y = car.y;
-  G.stats.carsStolen += 1;
-  G.audio.click();
-  if (wasParked) {
-    G.audio.horn();
-    G.addWanted(G, WANTED.crimeSteal, 'stole a car');
-    G.floaters.push({ x: p.x, y: p.y - 30, text: 'Car stolen!', life: 1.4, color: '#ffd23f' });
-  }
-  return 'enter';
-}
-
-/** Fire one bullet from the player toward the mouse cursor. */
-export function fireWeapon(G) {
-  const p = G.player;
-  if (p.shootCd > 0) return false;
-  p.shootCd = PLAYER.shootCooldown;
-  const gx = p.onFoot ? p.x + Math.cos(p.aimAngle) * 20 : p.x + Math.cos(p.angle) * 40;
-  const gy = p.onFoot ? p.y + Math.sin(p.aimAngle) * 20 : p.y + Math.sin(p.angle) * 40;
-  const angle = p.onFoot ? p.aimAngle : p.angle;
-  G.bullets.push({
-    x: gx, y: gy,
-    vx: Math.cos(angle) * PLAYER.bulletSpeed,
-    vy: Math.sin(angle) * PLAYER.bulletSpeed,
+// Fire one bullet toward the mouse (on foot) or toward the car's nose
+// when driving is not allowed — shooting only works on foot.
+export function tryShoot(game) {
+  const p = game.player;
+  if (p.inCar || p.shootTimer > 0 || p.ammo <= 0) return false;
+  p.shootTimer = PLAYER.shootCooldown;
+  p.ammo -= 1;
+  const aim = game.aimAngle;
+  game.bullets.push({
+    x: p.x + Math.cos(aim) * 20,
+    y: p.y + Math.sin(aim) * 20,
+    vx: Math.cos(aim) * PLAYER.bulletSpeed,
+    vy: Math.sin(aim) * PLAYER.bulletSpeed,
     life: 0.9,
-    from: 'player',
-    damage: PLAYER.bulletDamage,
+    fromPlayer: true,
   });
-  G.stats.shots += 1;
-  G.shotsFiredAt = G.time;
-  G.audio.shoot();
-  if (G.wanted === 0) G.addWanted(G, WANTED.crimeShoot, 'fired a weapon');
-  else G.crimeTimer = 0;
+  game.audio.shoot();
+  game.stats.shots += 1;
+  // Gunfire in the open draws attention.
+  if (p.wanted < 2) addWanted(game, 1);
   return true;
 }
 
-/** Damage the player; returns 'dead' when health hits zero. */
-export function damagePlayer(G, amount, source) {
-  const p = G.player;
-  if (p.invuln > 0 || p.dead) return 'alive';
-  p.health -= amount;
-  p.invuln = 0.35;
-  spawnSparks(G, p.x, p.y);
-  if (p.health <= 0) {
-    p.health = 0;
-    p.dead = true;
-    return 'dead';
+function enterCar(game, car) {
+  const p = game.player;
+  const wasOwned = car.driver !== 'parked' && car.driver !== 'player';
+  p.inCar = car;
+  car.driver = 'player';
+  p.x = car.x;
+  p.y = car.y;
+  game.audio.steal();
+  game.audio.startEngine();
+  if (!car.owned) {
+    car.owned = true;
+    game.addMessage(`Took the ${car.name}. The owner will not be pleased.`, '#f2c94c');
+    addWanted(game, 1);
+  } else {
+    game.addMessage(`Back in the ${car.name}.`, '#aab3c0');
   }
-  void source;
-  return 'alive';
+  game.stats.carsStolen += 1;
 }
 
-export function healPlayer(G, amount) {
-  G.player.health = Math.min(PLAYER.health, G.player.health + amount);
+function exitCar(game) {
+  const p = game.player;
+  const car = p.inCar;
+  if (!car) return;
+  const side = car.angle + Math.PI / 2;
+  p.x = car.x + Math.cos(side) * 34;
+  p.y = car.y + Math.sin(side) * 34;
+  collideCircle(p, PLAYER.radius, game.city);
+  p.inCar = null;
+  car.speed = 0;
+  car.velX = 0;
+  car.velY = 0;
+  game.audio.stopEngine();
+  game.addMessage('On foot.', '#aab3c0');
 }
 
-/** R: recover — tow the car back onto the road and patch the player up. */
-export function recoverPlayer(G) {
-  const p = G.player;
-  const road = nearestRoadPoint(p.x, p.y);
-  p.x = road.x;
-  p.y = road.y;
-  if (p.car) {
-    p.car.x = road.x;
-    p.car.y = road.y;
-    p.car.angle = 0;
-    p.car.speed = 0;
-    p.car.health = Math.max(p.car.health, 60);
+// One fixed step of the player. `drive` comes from the input module:
+// axis for walking, throttle/steer for driving, and the one-shot actions.
+export function updatePlayer(game, dt, input, actions) {
+  const p = game.player;
+  if (p.hp <= 0) return;
+  if (p.shootTimer > 0) p.shootTimer -= dt;
+  if (p.hurtTimer > 0) p.hurtTimer -= dt;
+
+  if (actions.interact) {
+    if (p.inCar) exitCar(game);
+    else {
+      const car = nearestCar(game.cars, p.x, p.y, 64);
+      if (car) enterCar(game, car);
+    }
   }
-  p.health = PLAYER.health;
-  p.invuln = 1;
-  G.floaters.push({ x: p.x, y: p.y - 30, text: 'Recovered', life: 1.2, color: '#7dd7ff' });
+
+  if (p.inCar) {
+    const car = p.inCar;
+    const axis = input.axis();
+    const drive = {
+      throttle: -axis.y,
+      steer: axis.x,
+      handbrake: input.sprint(),
+    };
+    const hitWall = driveCar(car, drive, dt, game.city);
+    if (hitWall && car.speed > 240) {
+      game.audio.crash();
+      hurtPlayer(game, 4, 'a wall');
+    }
+    p.x = car.x;
+    p.y = car.y;
+    p.angle = car.angle;
+    game.audio.setEngine(clamp(car.speed / 560, 0, 1));
+    if (actions.horn) { game.audio.horn(); car.honk = 0.4; }
+    if (car.honk > 0) car.honk -= dt;
+    return;
+  }
+
+  // On foot: WASD moves, the player faces the mouse.
+  const axis = input.axis();
+  const len = Math.hypot(axis.x, axis.y);
+  p.moving = len > 0;
+  if (len > 0) {
+    const speed = input.sprint() ? PLAYER.runSpeed : PLAYER.walkSpeed;
+    p.x += (axis.x / len) * speed * dt;
+    p.y += (axis.y / len) * speed * dt;
+    p.walkPhase += dt * (input.sprint() ? 13 : 9);
+    const pos = { x: p.x, y: p.y };
+    collideCircle(pos, PLAYER.radius, game.city);
+    p.x = pos.x;
+    p.y = pos.y;
+  }
+  p.angle = game.aimAngle;
+
+  if (input.mouse.down || input.takeClick()) tryShoot(game);
+
+  // Street cash: walk over a bill to pocket it.
+  for (const pickup of game.pickups) {
+    if (pickup.taken || pickup.kind !== 'cash') continue;
+    if (dist2(p.x, p.y, pickup.x, pickup.y) < PLAYER.pickupRadius * PLAYER.pickupRadius) {
+      pickup.taken = true;
+      p.money += pickup.amount;
+      game.audio.pickup();
+      game.addMessage(`+$${pickup.amount} street cash`, '#58c184');
+      game.stats.cashPicked += pickup.amount;
+    }
+  }
+
+  // Slow health recovery when not in a fight.
+  if (p.wanted === 0 && p.hp > 0 && p.hp < PLAYER.maxHp) {
+    p.hp = Math.min(PLAYER.maxHp, p.hp + 1.2 * dt);
+  }
 }
 
-/** Where the player currently is, for the HUD's district readout. */
-export function playerDistrict(G) {
-  return districtAt(G.city, G.player.x, G.player.y);
-}
-
-export function playerSpeedKmh(G) {
-  if (G.player.onFoot) return 0;
-  const car = G.player.car;
-  return car ? Math.round(Math.abs(car.speed) * 0.18) : 0;
-}
-
-export function spawnCashPickup(G, x, y, amount) {
-  G.pickups.push({
-    x, y,
-    kind: 'cash',
-    amount: amount || Math.floor(range(G.rng, 15, 60)),
-    taken: false,
-    bob: range(G.rng, 0, Math.PI * 2),
-  });
-}
-
-export function spawnHealthPickup(G, x, y) {
-  G.pickups.push({ x, y, kind: 'health', amount: 40, taken: false, bob: 0 });
+export function spawnParkedCars(game) {
+  for (const spot of game.city.parkingSpots) {
+    // Skip a spot a building already occupies, so no car spawns inside a wall.
+    let blocked = false;
+    for (const b of game.city.buildings) {
+      if (spot.x > b.x - 26 && spot.x < b.x + b.w + 26 && spot.y > b.y - 26 && spot.y < b.y + b.h + 26) { blocked = true; break; }
+    }
+    if (blocked) continue;
+    game.cars.push(createCar(spot.type, spot.x, spot.y, spot.angle, { driver: 'parked' }));
+  }
 }
