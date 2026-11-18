@@ -1,161 +1,153 @@
-// missions.js — the story: five jobs for Dana Rook, from a first pickup to the
-// big bank score. Each mission is a list of steps; a step is { text, target,
-// radius, kind } and completes when the player reaches it (or does its action).
-import { MISSION_REWARDS, dist } from './config.js';
+// Missions for Solmar Heat: a five-job story chain for Juno and Marco.
+// Each mission is a list of steps; the engine advances a step when its goal is
+// met, pays the reward at the end, and opens the next job. M skips to the next
+// mission (for players who get stuck), forfeiting that job's reward.
+import { MISSIONS, dist } from './config.js';
 
-export const MISSION_DEFS = [
-  {
-    id: 'pickup', title: 'Job 1 — First Pickup', giver: 'Juno',
-    intro: 'Juno needs a ride from the Marina to the Tidal Bar. Get to her, then drive her across town. No heat, no fuss.',
-    steps: [
-      { text: 'Pick up Juno at Marina Bay', target: 'marina', radius: 70, kind: 'goto' },
-      { text: 'Drive Juno to the Tidal Bar', target: 'beachBar', radius: 80, kind: 'goto' },
-    ],
-  },
-  {
-    id: 'hotwheels', title: 'Job 2 — Hot Wheels', giver: 'Marco',
-    intro: 'Marco wants a Sunset coupe, any Sunset coupe, delivered to the Docks Garage. Take one off the street — quietly, or not.',
-    steps: [
-      { text: 'Steal a Sunset coupe (gold car)', target: 'market', radius: 130, kind: 'steal' },
-      { text: 'Deliver the coupe to the Docks Garage', target: 'garage', radius: 80, kind: 'goto' },
-    ],
-  },
-  {
-    id: 'beachrun', title: 'Job 3 — Beach Run', giver: 'Juno',
-    intro: 'A package for the Sunset Pier, and the clock is ticking. Six minutes, one pier, no questions.',
-    steps: [
-      { text: 'Grab the package at Market Row', target: 'market', radius: 70, kind: 'goto' },
-      { text: 'Deliver it to Sunset Pier before time runs out', target: 'pier', radius: 80, kind: 'goto', timer: 360 },
-    ],
-  },
-  {
-    id: 'heatwave', title: 'Job 4 — Heat Wave', giver: 'Marco',
-    intro: 'The cops are onto the crew. Lose a three-star tail and make it back to the Hideout in one piece.',
-    steps: [
-      { text: 'Get spotted — the chase starts at Market Row', target: 'market', radius: 70, kind: 'heat' },
-      { text: 'Lose the cops, then reach the Hideout', target: 'hideout', radius: 80, kind: 'escape' },
-    ],
-  },
-  {
-    id: 'bigscore', title: 'Job 5 — The Big Score', giver: 'Juno',
-    intro: 'Solmar Savings Bank. In, out, two grand richer — if the whole city does not come after you.',
-    steps: [
-      { text: 'Reach Solmar Savings Bank', target: 'bank', radius: 80, kind: 'goto' },
-      { text: 'Hold up the bank (stay by the doors)', target: 'bank', radius: 90, kind: 'hold', holdTime: 6 },
-      { text: 'Escape to the Hideout with the cash', target: 'hideout', radius: 90, kind: 'escape' },
-    ],
-  },
-];
+export function createMissionState() {
+  return { index: 0, step: 0, done: false, rivalsLeft: 0, started: false };
+}
 
-export class Missions {
-  constructor(city) {
-    this.city = city;
-    this.index = 0; this.step = 0; this.active = false;
-    this.timer = 0; this.hold = 0; this.done = false; this.storyComplete = false;
-    this.message = ''; this.messageTimer = 0;
-    this.targetCar = null; // for the steal step
+// (Re)start the current mission: apply its startWanted, spawn its rivals.
+export function startMission(G) {
+  const m = MISSIONS[G.missions.index];
+  if (!m) { G.missions.done = true; return; }
+  G.missions.step = 0;
+  G.missions.started = true;
+  G.rivals = [];
+  if (m.startWanted) G.wanted = Math.max(G.wanted, m.startWanted);
+  // Short toast: the full brief would clip at the panel edge.
+  G.toast(m.giver + ': ' + m.title + ' — $' + m.reward + ' reward');
+  G.setObjective(m.steps[0].label);
+  if (m.steps[0].type === 'shoot') spawnRivals(G, m.steps[0]);
+}
+
+export function missionOf(G) {
+  return MISSIONS[G.missions.index] || null;
+}
+
+export function currentStep(G) {
+  const m = missionOf(G);
+  return m ? m.steps[G.missions.step] : null;
+}
+
+export function missionTarget(G) {
+  const s = currentStep(G);
+  if (!s || s.x === undefined) return null;
+  return { x: s.x, y: s.y, r: s.r || 90 };
+}
+
+function spawnRivals(G, step) {
+  const cx = step.x || 2400, cy = step.y || 1800;
+  G.missions.rivalsLeft = step.count || 5;
+  for (let i = 0; i < (step.count || 5); i++) {
+    const a = (i / (step.count || 5)) * Math.PI * 2;
+    G.rivals.push({
+      x: cx + Math.cos(a) * 130, y: cy + Math.sin(a) * 130,
+      angle: a, hp: 40, fire: 1 + i * 0.3, dead: false, speed: 120,
+    });
   }
-  get def() { return MISSION_DEFS[this.index] || null; }
-  get currentStep() { return this.def ? this.def.steps[this.step] : null; }
-  get targetPos() {
-    const s = this.currentStep;
-    if (!s) return null;
-    const loc = this.city.locations()[s.target];
-    return loc ? { x: loc.x, y: loc.y, name: loc.name } : null;
+}
+
+// Called by the game loop every frame while playing.
+export function updateMissions(G, dt) {
+  const m = missionOf(G);
+  if (!m || G.missions.done) return;
+  const s = currentStep(G);
+  if (!s) return;
+  const p = G.player;
+  const px = p.car ? p.car.x : p.x;
+  const py = p.car ? p.car.y : p.y;
+  if (s.type === 'steal') {
+    if (p.car) advanceStep(G);
+  } else if (s.type === 'goto' || s.type === 'drive') {
+    if (s.type === 'drive' && !p.car) return; // deliveries need wheels
+    if (dist(px, py, s.x, s.y) < (s.r || 90)) advanceStep(G);
+  } else if (s.type === 'escape') {
+    if (G.wanted === 0) advanceStep(G);
+  } else if (s.type === 'shoot') {
+    if (G.rivals.length === 0) spawnRivals(G, s);
+    if (G.missions.rivalsLeft <= 0) advanceStep(G);
   }
-  start(index = 0) {
-    this.index = index; this.step = 0; this.active = true; this.done = false;
-    this.timer = 0; this.hold = 0;
-    this.showMessage(`${this.def.title} — ${this.def.giver}: ${this.def.intro}`);
-    return this.def;
+}
+
+function advanceStep(G) {
+  const m = missionOf(G);
+  G.missions.step++;
+  if (G.audio) G.audio.jingle();
+  if (G.missions.step >= m.steps.length) {
+    completeMission(G, m);
+    return;
   }
-  showMessage(text, dur = 6) { this.message = text; this.messageTimer = dur; }
-  objectiveText() {
-    if (this.storyComplete) return 'Story complete — free roam. Earn cash, dodge the law.';
-    if (!this.active || !this.def) return 'Press M to start the next job.';
-    const s = this.currentStep;
-    let t = `${this.def.title}: ${s.text}`;
-    if (s.timer) t += ` (${Math.max(0, Math.ceil(this.timer))}s left)`;
-    if (s.kind === 'hold') t += ` (${Math.ceil(this.hold)}s / ${s.holdTime}s)`;
-    return t;
+  const s = currentStep(G);
+  G.setObjective(s.label);
+  G.toast('Next: ' + s.label);
+  if (s.type === 'shoot') spawnRivals(G, s);
+}
+
+function completeMission(G, m) {
+  G.player.cash += m.reward;
+  G.stats.missionsDone++;
+  G.toast(m.title + ' complete! +' + '$' + m.reward);
+  G.saveGame();
+  G.missions.index++;
+  if (G.missions.index >= MISSIONS.length) {
+    G.missions.done = true;
+    G.completeGame();
+    return;
   }
-  // Returns 'step' | 'mission' | 'story' | 'failed' | null.
-  update(dt, game) {
-    if (this.messageTimer > 0) this.messageTimer -= dt;
-    if (!this.active || !this.def) return null;
-    const s = this.currentStep;
-    const p = game.player;
-    const target = this.targetPos;
-    if (s.timer) {
-      this.timer -= dt;
-      if (this.timer <= 0) { this.fail(game); return 'failed'; }
+  startMission(G);
+}
+
+// M: skip the current job (no reward) and open the next one.
+export function skipMission(G) {
+  const m = missionOf(G);
+  if (!m || G.missions.done) return;
+  G.toast('Skipped ' + m.title + ' — no reward for this one');
+  G.rivals = [];
+  G.missions.index++;
+  if (G.missions.index >= MISSIONS.length) {
+    G.missions.done = true;
+    G.completeGame();
+    return;
+  }
+  startMission(G);
+}
+
+// Rivals wander toward the player and shoot; called from the main loop.
+export function updateRivals(G, dt) {
+  const p = G.player;
+  for (const r of G.rivals) {
+    if (r.dead) continue;
+    const d = dist(r.x, r.y, p.x, p.y);
+    if (d > 90) {
+      const a = Math.atan2(p.y - r.y, p.x - r.x);
+      r.x += Math.cos(a) * r.speed * dt;
+      r.y += Math.sin(a) * r.speed * dt;
+      r.angle = a;
     }
-    if (s.kind === 'hold') {
-      const d = target ? dist(p.x, p.y, target.x, target.y) : 9999;
-      if (d < s.radius) {
-        this.hold += dt;
-        if (this.hold >= s.holdTime) return this.advance(game);
-      } else this.hold = Math.max(0, this.hold - dt * 2);
-      return null;
-    }
-    if (s.kind === 'steal') {
-      const car = p.car;
-      if (car && car.type === 'Sunset coupe') return this.advance(game);
-      return null;
-    }
-    if (s.kind === 'heat') {
-      const d = target ? dist(p.x, p.y, target.x, target.y) : 9999;
-      if (d < s.radius) {
-        game.police.setStars(3, game.time);
-        this.showMessage('Three stars! Lose them and get to the Hideout.');
-        return this.advance(game);
-      }
-      return null;
-    }
-    if (s.kind === 'escape') {
-      const d = target ? dist(p.x, p.y, target.x, target.y) : 9999;
-      if (d < s.radius && game.police.stars === 0) return this.advance(game);
-      return null;
-    }
-    // plain goto
-    const d = target ? dist(p.x, p.y, target.x, target.y) : 9999;
-    if (d < s.radius) return this.advance(game);
-    return null;
   }
-  advance(game) {
-    const s = this.currentStep;
-    if (s && s.timer === undefined && s.kind !== 'hold') { /* keep timer */ }
-    this.step++;
-    if (this.step >= this.def.steps.length) {
-      const reward = MISSION_REWARDS[this.index];
-      game.player.earn(reward);
-      game.audio.cash();
-      this.showMessage(`${this.def.title} complete! +$${reward}`);
-      this.index++;
-      if (this.index >= MISSION_DEFS.length) {
-        this.active = false; this.storyComplete = true; this.done = true;
-        game.audio.missionDone();
-        return 'story';
-      }
-      this.active = false;
-      game.audio.missionDone();
-      return 'mission';
-    }
-    const next = this.currentStep;
-    if (next && next.timer) this.timer = next.timer;
-    this.hold = 0;
-    this.showMessage(`Next: ${next.text}`);
-    return 'step';
-  }
-  fail(game) {
-    this.active = false; this.step = 0; this.timer = 0;
-    this.showMessage('Job failed — the package is gone. Press M to try again.');
-    return 'failed';
-  }
-  saveData() { return { index: this.index, storyComplete: this.storyComplete }; }
-  loadData(d) {
-    if (!d) return;
-    this.index = d.index ?? 0; this.storyComplete = !!d.storyComplete;
-    this.active = false; this.step = 0;
+}
+
+export function drawRivals(ctx, G) {
+  for (const r of G.rivals) {
+    if (r.dead) continue;
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(0, 5, 9, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.rotate(r.angle);
+    ctx.fillStyle = '#8a2f2f';
+    ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f2c89b';
+    ctx.beginPath(); ctx.arc(2, 0, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.fillRect(6, -2, 12, 4);
+    ctx.restore();
+    // Health bar.
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(r.x - 14, r.y - 20, 28, 4);
+    ctx.fillStyle = '#ff5a4a';
+    ctx.fillRect(r.x - 14, r.y - 20, 28 * Math.max(0, r.hp / 40), 4);
   }
 }
