@@ -1,21 +1,5 @@
-# Solmar Heat — files that never get committed.
-# Build output from main.ts and from local runs.
-out/
-output/
-dist/
-
-# Local tooling and caches.
 node_modules/
-*.log
-*.tmp
-*.out
-
-# Editor and OS clutter.
+out/
+/output
 .DS_Store
-Thumbs.db
-.vscode/
-.idea/
-*.swp
-*~
-
-# Screenshots are part of the entry and stay tracked.
+*.log

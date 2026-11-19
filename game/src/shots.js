@@ -1,133 +1,61 @@
-// Solmar Heat — screenshot scenes.
-// Each scene poses the real game at a fixed seed and steps the simulation
-// forward so the frame is what a short session really looks like: the title
-// over the pier, a drive down the main avenue, a job in progress, and a
-// four-star chase. The game loop keeps running after staging, so the shot
-// the browser takes is a live frame, not a still.
-
-import { WORLD } from './config.js';
-import { makeVehicle, driveVehicle } from './vehicles.js';
-import { dist } from './config.js';
-
-function settleTraffic(game, steps) {
-  const world = game.world;
-  for (let i = 0; i < steps; i += 1) {
-    world.traffic.update(1 / 60, { player: world.player, playerVehicle: world.player.inVehicle });
+// Solmar Heat — shots.js
+// Deterministic staging for screenshots: ?shot=start|drive|mission|chase
+// puts the game in a fixed, seeded state so every screenshot is a real
+// render of the game's own code, reproducible from the same seed.
+export function applyShot(state, shot) {
+  if (!shot) return;
+  const p = state.player;
+  if (shot === 'start') {
+    state.screen = 'title';
+    p.x = 700; p.y = 1100; p.wanted = 0; p.wantedHeat = 0;
+    state.camera.x = 700; state.camera.y = 1100;
+    return;
   }
-}
-
-export function stageShot(name, game, seed) {
-  game.reset(seed || 11);
-  const world = game.world;
-  const p = world.player;
-
-  if (name === 'start') {
-    // Rae on the pier at golden hour, the city behind her, title on top.
-    p.x = -90;
-    p.z = 306;
-    p.heading = Math.PI;
-    game.state = 'title';
-    game.showHowTo = false;
-    settleTraffic(game, 30);
-    game.renderer.updateCamera(p, null, 1);
-    return { screen: 'title' };
+  state.screen = 'playing';
+  if (shot === 'drive') {
+    const car = state.cars.find((c) => !c.wrecked && c.parked) || state.cars[0];
+    if (car) {
+      p.inCar = car;
+      car.parked = false;
+      car.speed = 420;
+      car.angle = -Math.PI / 2;
+      p.x = car.x; p.y = car.y;
+      state.camera.x = car.x; state.camera.y = car.y;
+    }
+    p.wanted = 0; p.wantedHeat = 0;
+    state.missions.message = 'Cruising Palm Heights — press E near any car to take it.';
+  } else if (shot === 'mission') {
+    p.x = 620; p.y = 660;
+    p.inCar = null;
+    p.wanted = 1; p.wantedHeat = 30;
+    state.missions.index = 0;
+    state.missions.stage = 'deliver';
+    state.missions.message = 'Rosa Marlin: Crate secured. Deliver it to the Old Town garage!';
+    state.missionObjective = { x: 2050, y: 700, label: 'Deliver: First Drop' };
+    state.camera.x = 700; state.camera.y = 700;
+  } else if (shot === 'chase') {
+    const car = state.cars.find((c) => !c.wrecked && c.parked) || state.cars[0];
+    if (car) {
+      p.inCar = car;
+      car.parked = false;
+      car.speed = 500;
+      car.angle = 0;
+      p.x = car.x; p.y = car.y;
+      state.camera.x = car.x; state.camera.y = car.y;
+    }
+    p.wanted = 4; p.wantedHeat = 110;
+    state.missions.index = 1;
+    state.missions.stage = 'deliver';
+    state.missions.message = 'Theo Vance: They are all over us — get to the safehouse!';
+    state.missionObjective = { x: 2050, y: 1950, label: 'Deliver: Getaway Driver' };
+    state.policeCars.length = 0;
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.5;
+      state.policeCars.push({
+        id: 900 + i, x: p.x + Math.cos(a) * 420, y: p.y + Math.sin(a) * 420,
+        angle: a + Math.PI, speed: 380, model: { name: 'Police Interceptor', color: '#2b6cff', speed: 1 },
+        color: '#2b6cff', police: true, traffic: false, parked: false, wrecked: false, health: 100, driver: true,
+      });
+    }
   }
-
-  if (name === 'drive') {
-    // A Veloce GT flying down the main avenue, traffic around, job one live.
-    const car = makeVehicle('coupe', 0, 120, 0, '#c83828');
-    car.driver = 'player';
-    car.speed = 30;
-    world.traffic.cars.push(car);
-    p.inVehicle = car;
-    p.x = car.x;
-    p.z = car.z;
-    p.heading = 0;
-    world.missions.startNext();
-    game.state = 'play';
-    for (let i = 0; i < 60; i += 1) {
-      driveVehicle(car, 1, 0, 1 / 60, world.city, false);
-      p.x = car.x;
-      p.z = car.z;
-      world.traffic.update(1 / 60, { player: p, playerVehicle: car });
-    }
-    game.renderer.updateCamera(p, car, 1);
-    return { screen: 'play' };
-  }
-
-  if (name === 'mission') {
-    // Job five: the warehouse crew, pistol in hand, one star already lit.
-    // Staged on the avenue so the player, the crew and the marker are all
-    // in one clear view down the road — never inside a block.
-    world.missions.index = 4;
-    world.missions.startNext();
-    p.armed = true;
-    p.ammo = 48;
-    p.x = 120;
-    p.z = 96;
-    p.heading = 0;
-    world.police.addHeat(1, 'mission');
-    game.state = 'play';
-    for (let i = 0; i < 40; i += 1) {
-      world.police.update(1 / 60, { player: p, playerVehicle: null });
-      world.traffic.update(1 / 60, { player: p, playerVehicle: null });
-    }
-    game.renderer.updateCamera(p, null, 1);
-    return { screen: 'play' };
-  }
-
-  if (name === 'chase') {
-    // Four stars, three cruisers closing in, the getaway job on the HUD.
-    const car = makeVehicle('coupe', 0, -60, 0, '#e8a018');
-    car.driver = 'player';
-    car.speed = 34;
-    car.damage = 62;
-    world.traffic.cars.push(car);
-    p.inVehicle = car;
-    p.x = car.x;
-    p.z = car.z;
-    p.heading = 0;
-    world.missions.index = 6;
-    world.missions.startNext();
-    world.police.addHeat(4, 'chase');
-    game.state = 'play';
-    for (let i = 0; i < 50; i += 1) {
-      driveVehicle(car, 1, 0, 1 / 60, world.city, false);
-      p.x = car.x;
-      p.z = car.z;
-      world.police.update(1 / 60, { player: p, playerVehicle: car });
-      world.traffic.update(1 / 60, { player: p, playerVehicle: car });
-      if (i % 6 === 0) game.addSmoke(car.x, car.z, 1.4);
-    }
-    // Put two cruisers where the camera can see them: one closing from
-    // ahead-right, one on the flank — a chase reads better than a minimap
-    // full of dots the frame never shows.
-    if (world.police.units[0]) {
-      const lead = world.police.units[0].car;
-      lead.x = p.x + 16;
-      lead.z = p.z + 34;
-      lead.heading = Math.PI;
-      lead.speed = 20;
-    }
-    if (world.police.units[1]) {
-      const flank = world.police.units[1].car;
-      flank.x = p.x - 18;
-      flank.z = p.z + 20;
-      flank.heading = Math.PI * 0.75;
-      flank.speed = 18;
-    }
-    // Full health and a quiet few seconds for the shot: the frame loop
-    // keeps playing after staging, and four-star police would otherwise
-    // shoot the player bloody before the shutter falls.
-    p.health = p.maxHealth;
-    p.hurtFlash = 0;
-    world.police.shotTimer = 5;
-    game.renderer.updateCamera(p, car, 1);
-    return { screen: 'play' };
-  }
-
-  // Unknown scene name: fall back to the title.
-  game.state = 'title';
-  game.renderer.updateCamera(p, null, 1);
-  return { screen: 'title' };
 }

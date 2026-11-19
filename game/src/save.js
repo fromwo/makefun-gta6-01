@@ -1,101 +1,67 @@
-// Solmar Heat — saving and loading.
-// One versioned JSON blob in localStorage (with an in-memory fallback so the
-// self-test can run under Node). The save holds progression, not the live
-// simulation: on continue the player wakes at the last safe spot with their
-// cash, missions and collectibles intact.
+// Solmar Heat — save.js
+// localStorage save/load: money, health, position, mission progress,
+// completed jobs and wanted level. Versioned so old saves never crash.
+const KEY = 'solmar-heat-save-v1';
 
-import { SAVE_KEY, SAVE_VERSION } from './config.js';
-
-const memoryStore = new Map();
-
-function storage() {
+export function saveGame(state) {
   try {
-    if (typeof localStorage !== 'undefined' && localStorage) return localStorage;
-  } catch {
-    // Private mode or a non-browser host: fall through to memory.
-  }
-  return {
-    getItem: (k) => (memoryStore.has(k) ? memoryStore.get(k) : null),
-    setItem: (k, v) => memoryStore.set(k, v),
-    removeItem: (k) => memoryStore.delete(k),
-  };
-}
-
-export function saveGame(data) {
-  const payload = {
-    version: SAVE_VERSION,
-    savedAt: new Date().toISOString(),
-    ...data,
-  };
-  try {
-    storage().setItem(SAVE_KEY, JSON.stringify(payload));
+    const p = state.player;
+    const data = {
+      version: 1,
+      money: p.money,
+      health: p.health,
+      x: p.x,
+      y: p.y,
+      wanted: p.wanted,
+      wantedHeat: p.wantedHeat,
+      missionIndex: state.missions.index,
+      completed: state.missions.completed,
+      weaponIndex: p.weaponIndex,
+      savedAt: 0,
+    };
+    localStorage.setItem(KEY, JSON.stringify(data));
     return true;
-  } catch {
+  } catch (e) {
     return false;
   }
 }
 
 export function loadGame() {
   try {
-    const raw = storage().getItem(SAVE_KEY);
+    const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || data.version !== SAVE_VERSION) return null;
+    if (!data || data.version !== 1) return null;
     return data;
-  } catch {
+  } catch (e) {
     return null;
   }
 }
 
 export function hasSave() {
-  return loadGame() !== null;
+  try {
+    return !!localStorage.getItem(KEY);
+  } catch (e) {
+    return false;
+  }
+}
+
+export function applySave(state, data) {
+  if (!data) return false;
+  const p = state.player;
+  p.money = data.money;
+  p.health = data.health;
+  p.x = data.x;
+  p.y = data.y;
+  p.wanted = data.wanted || 0;
+  p.wantedHeat = data.wantedHeat || 0;
+  p.weaponIndex = data.weaponIndex || 1;
+  state.missions.index = data.missionIndex || 0;
+  state.missions.completed = Array.isArray(data.completed) ? data.completed : [];
+  state.missions.stage = 'idle';
+  return true;
 }
 
 export function clearSave() {
-  try {
-    storage().removeItem(SAVE_KEY);
-  } catch {
-    // Nothing to clear.
-  }
-}
-
-// The shape main.js saves: progression plus the bits worth resuming with.
-export function snapshotForSave(world) {
-  const p = world.player;
-  return {
-    cash: p.cash,
-    health: p.health,
-    missionIndex: world.missions.index,
-    missionsDone: world.missions.done.slice(),
-    stashesTaken: world.city.stashes.filter((s) => s.taken).map((s) => s.id),
-    kills: p.kills,
-    crimes: p.crimes,
-    earned: world.stats.earned,
-    distance: Math.floor(world.stats.distance),
-    playSeconds: Math.floor(world.stats.playSeconds),
-    x: p.x,
-    z: p.z,
-    hour: world.hour,
-  };
-}
-
-export function applySave(world, data) {
-  const p = world.player;
-  p.cash = data.cash;
-  p.health = data.health;
-  p.kills = data.kills || 0;
-  p.crimes = data.crimes || 0;
-  p.x = data.x;
-  p.z = data.z;
-  world.missions.index = data.missionIndex || 0;
-  world.missions.done = (data.missionsDone || []).slice();
-  world.missions.active = null;
-  world.missions.step = 0;
-  for (const stash of world.city.stashes) {
-    stash.taken = (data.stashesTaken || []).includes(stash.id);
-  }
-  world.stats.earned = data.earned || 0;
-  world.stats.distance = data.distance || 0;
-  world.stats.playSeconds = data.playSeconds || 0;
-  world.hour = data.hour || 16.4;
+  try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
 }

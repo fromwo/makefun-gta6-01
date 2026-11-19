@@ -1,17 +1,6 @@
-// Solmar Heat — deterministic randomness.
-// Every procedural choice in the city, traffic and missions draws from one
-// seeded generator, so a screenshot seed always rebuilds the same Solmar.
-// mulberry32 is small, fast and good enough for game content.
-
-export function hashString(text) {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
+// Solmar Heat — random.js
+// Deterministic seeded random numbers (mulberry32) so a fixed seed
+// always builds the same city, traffic and pedestrians.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -23,46 +12,30 @@ export function mulberry32(seed) {
   };
 }
 
-export class RNG {
-  constructor(seed) {
-    this.seed = seed >>> 0;
-    this.nextFloat = mulberry32(this.seed);
+export function hashString(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
+  return h >>> 0;
+}
 
-  next() {
-    return this.nextFloat();
-  }
-
-  range(lo, hi) {
-    return lo + (hi - lo) * this.nextFloat();
-  }
-
-  int(lo, hi) {
-    return Math.floor(this.range(lo, hi + 1));
-  }
-
-  chance(p) {
-    return this.nextFloat() < p;
-  }
-
-  pick(list) {
-    return list[Math.floor(this.nextFloat() * list.length)];
-  }
-
-  // Fisher-Yates, in place, driven by this generator.
-  shuffle(list) {
-    for (let i = list.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(this.nextFloat() * (i + 1));
-      const tmp = list[i];
-      list[i] = list[j];
-      list[j] = tmp;
-    }
-    return list;
-  }
-
-  // A fresh generator branched from this one, for a subsystem that wants
-  // its own stream without disturbing the parent's sequence.
-  fork(salt) {
-    return new RNG((this.seed ^ Math.imul(hashString(String(salt)), 2654435761)) >>> 0);
-  }
+export function makeRng(seed) {
+  const next = mulberry32(typeof seed === 'string' ? hashString(seed) : seed);
+  return {
+    next,
+    int(min, max) {
+      return min + Math.floor(next() * (max - min + 1));
+    },
+    float(min, max) {
+      return min + next() * (max - min);
+    },
+    pick(arr) {
+      return arr[Math.floor(next() * arr.length)];
+    },
+    chance(p) {
+      return next() < p;
+    },
+  };
 }

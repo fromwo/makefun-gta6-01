@@ -1,106 +1,101 @@
-// Solmar Heat — vehicles.
-// Six body styles with their own speed, handling and colour. A vehicle is a
-// plain state object; driving physics lives here so the player, traffic and
-// police all steer the same way. No DOM, no audio: the caller plays sounds.
+// Solmar Heat — vehicles.js
+// Cars: spawning parked and moving cars, arcade driving physics,
+// stealing (enter a nearby car), damage and wrecks.
+import { CONFIG, CAR_MODELS } from './config.js';
+import { makeRng } from './random.js';
+import { collidesBuilding, clampToWorld, nearestRoadPoint } from './city.js';
 
-import { PHYSICS, clamp, angleDiff } from './config.js';
-import { collideCircle } from './city.js';
+let carId = 0;
 
-export const VEHICLE_TYPES = {
-  coupe: { name: 'Veloce GT', topSpeed: 46, accel: 30, steer: 0.72, colors: ['#c83828', '#e8a018', '#28a8c8'] },
-  sedan: { name: 'Meridian Sedan', topSpeed: 34, accel: 24, steer: 0.6, colors: ['#5a6a7a', '#8a8a7a', '#3a4a5a', '#b8b0a0'] },
-  taxi: { name: 'Solmar Cab', topSpeed: 33, accel: 23, steer: 0.6, colors: ['#e8c818'] },
-  van: { name: 'Cargo Van', topSpeed: 28, accel: 18, steer: 0.5, colors: ['#c8c8c8', '#7a8a9a'] },
-  truck: { name: 'Haul Truck', topSpeed: 26, accel: 16, steer: 0.42, colors: ['#8a5a28', '#4a6a4a'] },
-  cruiser: { name: 'SCPD Cruiser', topSpeed: 40, accel: 28, steer: 0.68, colors: ['#202840'] },
-};
-
-export function makeVehicle(type, x, z, heading, color) {
-  const def = VEHICLE_TYPES[type] || VEHICLE_TYPES.sedan;
+export function makeCar(x, y, angle, modelIndex, opts) {
+  const model = CAR_MODELS[modelIndex % CAR_MODELS.length];
   return {
-    type,
-    name: def.name,
-    x,
-    z,
-    heading,
+    id: ++carId,
+    x, y, angle,
     speed: 0,
-    steer: 0,
-    color: color || def.colors[0],
-    damage: 0,
-    driver: null, // 'player' | 'traffic' | 'police' | null (parked)
-    horn: 0,
-    brakeLight: false,
-    siren: false,
-    id: Math.floor(Math.random() * 1e9),
+    model,
+    color: (opts && opts.color) || model.color,
+    police: !!(opts && opts.police),
+    traffic: !!(opts && opts.traffic),
+    parked: !!(opts && opts.parked),
+    wrecked: false,
+    health: 100,
+    driver: !!(opts && opts.driver),
   };
 }
 
-export function vehicleDef(type) {
-  return VEHICLE_TYPES[type] || VEHICLE_TYPES.sedan;
+export function spawnParkedCars(city, seed, count) {
+  const rng = makeRng(seed + 777);
+  const cars = [];
+  let tries = 0;
+  while (cars.length < count && tries < count * 40) {
+    tries++;
+    const x = rng.float(200, city.size - 200);
+    const y = rng.float(200, city.size - 200);
+    const road = nearestRoadPoint(city, x, y);
+    if (!road) continue;
+    const dx = road.x - x;
+    const dy = road.y - y;
+    if (dx * dx + dy * dy > 90 * 90) continue;
+    if (collidesBuilding(city, road.x, road.y, 30)) continue;
+    const angle = road.vertical ? (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2) : (rng.chance(0.5) ? 0 : Math.PI);
+    const ox = road.vertical ? (rng.chance(0.5) ? 14 : -14) : 0;
+    const oy = road.vertical ? 0 : (rng.chance(0.5) ? 14 : -14);
+    cars.push(makeCar(road.x + ox, road.y + oy, angle, rng.int(0, CAR_MODELS.length - 1), { parked: true }));
+  }
+  return cars;
 }
 
-// Drive one step. throttle -1..1, steerInput -1..1, dt seconds.
-// Returns the distance travelled, for odometer / fare math.
-export function driveVehicle(v, throttle, steerInput, dt, city, handbrake) {
-  const def = vehicleDef(v.type);
-  const grip = handbrake ? PHYSICS.handbrakeGrip : PHYSICS.grip;
-  if (throttle > 0) v.speed += def.accel * throttle * dt;
-  else if (throttle < 0) {
-    if (v.speed > 0.5) v.speed -= PHYSICS.brake * dt;
-    else v.speed += PHYSICS.reverseAccel * throttle * dt;
+export function updateDrivenCar(car, input, dt, city, audio) {
+  const axis = input.axis();
+  const forward = axis.y < 0;
+  const back = axis.y > 0;
+  const maxSpeed = CONFIG.carMaxSpeed * car.model.speed;
+  if (forward) car.speed += CONFIG.carAccel * dt;
+  else if (back) car.speed -= CONFIG.carAccel * 0.7 * dt;
+  else {
+    const drag = 260 * dt;
+    if (car.speed > drag) car.speed -= drag;
+    else if (car.speed < -drag) car.speed += drag;
+    else car.speed = 0;
   }
-  v.speed -= v.speed * PHYSICS.drag * dt * 0.4;
-  v.speed = clamp(v.speed, -PHYSICS.maxReverse, def.topSpeed);
-  if (Math.abs(v.speed) < 0.05 && throttle === 0) v.speed = 0;
-
-  const steerTarget = steerInput * PHYSICS.steerMax * def.steer;
-  v.steer += (steerTarget - v.steer) * Math.min(1, dt * 8);
-  const turnRate = v.steer * clamp(Math.abs(v.speed) / 8, 0, 1) * grip * (v.speed >= 0 ? 1 : -1);
-  v.heading += turnRate * dt;
-
-  const nx = v.x + Math.sin(v.heading) * v.speed * dt;
-  const nz = v.z + Math.cos(v.heading) * v.speed * dt;
-  const fixed = collideCircle(city, nx, nz, PHYSICS.carRadius);
-  if (fixed.x !== nx || fixed.z !== nz) {
-    // A building stop: kill most of the speed and mark the damage.
-    if (Math.abs(v.speed) > 6) v.damage = Math.min(100, v.damage + Math.abs(v.speed) * 0.8);
-    v.speed *= 0.35;
+  if (input.down(' ')) {
+    car.speed -= Math.sign(car.speed) * CONFIG.carBrake * dt;
+    if (Math.abs(car.speed) < 30) car.speed = 0;
   }
-  v.x = fixed.x;
-  v.z = fixed.z;
-  v.brakeLight = throttle < 0 && v.speed > 0.5;
-  return Math.abs(v.speed) * dt;
+  car.speed = Math.max(-CONFIG.carReverseMax, Math.min(maxSpeed, car.speed));
+  const steer = axis.x * CONFIG.carTurn * dt * Math.min(1, Math.abs(car.speed) / 120 + 0.15) * (car.speed < 0 ? -1 : 1);
+  car.angle += steer;
+  const nx = car.x + Math.cos(car.angle) * car.speed * dt;
+  const ny = car.y + Math.sin(car.angle) * car.speed * dt;
+  const hit = collidesBuilding(city, nx, ny, 22);
+  if (hit) {
+    car.speed *= -0.25;
+    car.health -= 6;
+    if (audio) audio.crash();
+    if (car.health <= 0) car.wrecked = true;
+  } else {
+    car.x = nx;
+    car.y = ny;
+  }
+  const c = clampToWorld(car.x, car.y, 30);
+  car.x = c.x; car.y = c.y;
+  if (audio) audio.setEngine(Math.abs(car.speed) / maxSpeed, true);
+  return car;
 }
 
-// Push two overlapping vehicles apart and trade a little speed.
-export function collideVehicles(a, b) {
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  const d = Math.hypot(dx, dz);
-  const min = 4.2;
-  if (d === 0 || d >= min) return false;
-  const push = (min - d) / 2;
-  const ux = dx / d;
-  const uz = dz / d;
-  a.x -= ux * push;
-  a.z -= uz * push;
-  b.x += ux * push;
-  b.z += uz * push;
-  const impact = Math.abs(a.speed - b.speed);
-  if (impact > 4) {
-    a.damage = Math.min(100, a.damage + impact * 0.4);
-    b.damage = Math.min(100, b.damage + impact * 0.4);
+export function updateTrafficCar(car, dt, city, rng) {
+  if (car.wrecked || car.parked) return;
+  const aheadX = car.x + Math.cos(car.angle) * 90;
+  const aheadY = car.y + Math.sin(car.angle) * 90;
+  if (!city || collidesBuilding(city, aheadX, aheadY, 20)) {
+    car.angle += Math.PI / 2;
+    return;
   }
-  const avg = (a.speed + b.speed) / 2;
-  a.speed = avg * 0.7;
-  b.speed = avg * 0.7;
-  return true;
-}
-
-// Steer a vehicle toward a target point (used by police and traffic AI).
-export function steerToward(v, tx, tz, throttle, dt, city) {
-  const desired = Math.atan2(tx - v.x, tz - v.z);
-  const diff = angleDiff(desired, v.heading);
-  const steer = clamp(diff * 1.6, -1, 1);
-  return driveVehicle(v, throttle, steer, dt, city, false);
+  car.speed = 150;
+  car.x += Math.cos(car.angle) * car.speed * dt;
+  car.y += Math.sin(car.angle) * car.speed * dt;
+  const c = clampToWorld(car.x, car.y, 30);
+  if (c.x !== car.x || c.y !== car.y) car.angle += Math.PI;
+  car.x = c.x; car.y = c.y;
 }

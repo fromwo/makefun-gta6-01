@@ -1,148 +1,101 @@
-// Solmar Heat — shared tuning and constants.
-// One place for every number the rest of the game agrees on: the city grid,
-// the physics, the wanted ladder, the economy and the palette. Nothing here
-// touches the DOM, so the self-test can import it under Node as well.
-
-export const GAME_TITLE = 'SOLMAR HEAT';
-export const GAME_SUBTITLE = 'An original sun-soaked open-world crime story';
-export const SAVE_KEY = 'solmar-heat-save-v1';
-export const SAVE_VERSION = 6;
-
-// The city is a grid of square blocks separated by roads. Roads sit on the
-// multiples of PITCH; a block fills the gap between two neighbouring roads.
-export const WORLD = {
-  pitch: 60,
-  road: 14,
-  halfRoad: 7,
-  blocks: 5, // roads at -5..5 * pitch, blocks between them
-  bound: 330, // playable half-extent in x and z
-  ground: 980, // drawn ground plane half-extent
-  beachAt: 296, // z beyond this is sand, then sea
-  seaAt: 336,
+// Solmar Heat — config.js
+// Central tuning for the original open-world game "Solmar Heat".
+// City: Solmar, a sunny seaside city invented for this game.
+export const CONFIG = {
+  title: 'SOLMAR HEAT',
+  cityName: 'Solmar',
+  seed: 20261119,
+  worldSize: 4200,
+  tile: 120,
+  roadWidth: 56,
+  blockSize: 240,
+  playerWalkSpeed: 230,
+  playerRunSpeed: 340,
+  carAccel: 520,
+  carBrake: 900,
+  carMaxSpeed: 620,
+  carReverseMax: 180,
+  carTurn: 2.6,
+  maxWanted: 5,
+  startMoney: 120,
+  startHealth: 100,
+  colors: {
+    grass: '#5da24a',
+    sand: '#e8d191',
+    sea: '#2f7fb8',
+    road: '#3a3a40',
+    roadLine: '#e8c33a',
+    sidewalk: '#9a9a92',
+    building: '#b98a5e',
+    building2: '#7e9bb5',
+    building3: '#c46a5e',
+    park: '#4c8a3f',
+    hudBg: 'rgba(8,12,20,0.72)',
+    hudText: '#ffffff',
+    accent: '#ffb400',
+    danger: '#ff4d4d',
+    police: '#2b6cff',
+  },
 };
 
-export const PHYSICS = {
-  walkSpeed: 6.5,
-  runSpeed: 10.5,
-  accel: 26,
-  brake: 42,
-  reverseAccel: 16,
-  maxReverse: 12,
-  drag: 0.55,
-  grip: 2.6,
-  steerMax: 0.62,
-  handbrakeGrip: 0.35,
-  punchRange: 2.4,
-  punchDamage: 34,
-  punchCooldown: 0.45,
-  shotRange: 42,
-  shotDamage: 34,
-  shotCooldown: 0.28,
-  playerRadius: 0.7,
-  carRadius: 2.2,
-};
+export const DISTRICTS = [
+  { name: 'Marina Bay', x: 300, y: 300, w: 1200, h: 900 },
+  { name: 'Old Town', x: 1600, y: 300, w: 1100, h: 900 },
+  { name: 'Palm Heights', x: 2900, y: 300, w: 1000, h: 900 },
+  { name: 'Dockside', x: 300, y: 1500, w: 1200, h: 900 },
+  { name: 'Sunset Strip', x: 1600, y: 1500, w: 1100, h: 900 },
+  { name: 'Coral Park', x: 2900, y: 1500, w: 1000, h: 900 },
+  { name: 'Harbor View', x: 300, y: 2600, w: 1200, h: 900 },
+  { name: 'Lime Quarter', x: 1600, y: 2600, w: 1100, h: 900 },
+  { name: 'Airport Road', x: 2900, y: 2600, w: 1000, h: 900 },
+];
 
-export const WANTED = {
-  max: 5,
-  decayDelay: 9, // seconds unseen before heat starts falling
-  decayRate: 0.12, // stars per second once decaying
-  heatSteal: 1,
-  heatHitPed: 1,
-  heatShoot: 1,
-  heatKillCop: 2,
-  heatRamCop: 1,
-};
+export const MISSION_DEFS = [
+  {
+    id: 'm1',
+    title: 'First Drop',
+    giver: 'Rosa Marlin',
+    briefing: 'Pick up the sealed crate at the Marina and deliver it to the Old Town garage. No questions, no shortcuts through the sea.',
+    target: { x: 700, y: 700 },
+    dropoff: { x: 2050, y: 700 },
+    reward: 400,
+    kind: 'deliver',
+  },
+  {
+    id: 'm2',
+    title: 'Getaway Driver',
+    giver: 'Theo Vance',
+    briefing: 'Theo is waiting at Dockside. Pick him up, then lose the heat and reach the Sunset Strip safehouse before the timer runs out.',
+    target: { x: 700, y: 1950 },
+    dropoff: { x: 2050, y: 1950 },
+    reward: 650,
+    kind: 'escort',
+    timeLimit: 150,
+  },
+  {
+    id: 'm3',
+    title: 'Harbor Showdown',
+    giver: 'Captain Ilya',
+    briefing: 'Rival crew members are holding the Harbor View pier. Drive there, clear them out on foot, and grab the ledger.',
+    target: { x: 700, y: 3050 },
+    dropoff: { x: 700, y: 3050 },
+    reward: 900,
+    kind: 'combat',
+    enemies: 5,
+  },
+];
 
-// Money: mission rewards, taxi fares and the cash stashes hidden in the city.
-export const ECONOMY = {
-  startCash: 120,
-  stashValue: 250,
-  taxiBase: 45,
-  taxiPerMetre: 0.35,
-};
+export const CAR_MODELS = [
+  { name: 'Sunny Coupe', color: '#e33f2f', speed: 1.0 },
+  { name: 'Palm Sedan', color: '#2f8fe3', speed: 0.92 },
+  { name: 'Coral Taxi', color: '#f2c230', speed: 0.95 },
+  { name: 'Wave Van', color: '#7bc47f', speed: 0.8 },
+  { name: 'Night Runner', color: '#7a4fd0', speed: 1.12 },
+  { name: 'Beach Buggy', color: '#ff8c42', speed: 0.88 },
+];
 
-export const DAY = {
-  startHour: 16.4, // golden afternoon
-  secondsPerHour: 240,
-};
-
-// Warm coastal palette: stucco, pastel paint, glass, asphalt, sand, sea.
-export const PALETTE = {
-  skyTop: '#2f6fb8',
-  skyMid: '#7fb4dd',
-  skyLow: '#ffd9a0',
-  sun: '#fff3c4',
-  sea: '#1f7f9e',
-  sand: '#e8cf9a',
-  grass: '#7da95c',
-  asphalt: '#3d3a38',
-  asphaltLight: '#4a4642',
-  sidewalk: '#b8ab90',
-  lane: '#e8d44d',
-  building: ['#e8b48a', '#d98a7a', '#a8c8d8', '#e8d8a8', '#c8a8b8', '#98b898', '#f0e0c0', '#88a8c8'],
-  glass: '#9fc8e8',
-  roof: ['#8a5a44', '#5a6a7a', '#7a7a6a', '#a85a4a'],
-  palm: '#3d7a3a',
-  trunk: '#8a6a4a',
-};
-
-// Key bindings, kept in one table so the help screen and the input module agree.
-export const KEYS = {
-  up: ['KeyW', 'ArrowUp'],
-  down: ['KeyS', 'ArrowDown'],
-  left: ['KeyA', 'ArrowLeft'],
-  right: ['KeyD', 'ArrowRight'],
-  run: ['ShiftLeft', 'ShiftRight'],
-  enterCar: ['KeyE'],
-  punch: ['KeyF'],
-  shoot: ['MouseLeft'],
-  handbrake: ['Space'],
-  horn: ['KeyH'],
-  pause: ['Escape', 'KeyP'],
-  mute: ['KeyM'],
-  reload: ['KeyR'],
-  camera: ['KeyC'],
-  interact: ['KeyE'],
-};
-
-export function clamp(v, lo, hi) {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-export function dist2(ax, az, bx, bz) {
-  const dx = ax - bx;
-  const dz = az - bz;
-  return dx * dx + dz * dz;
-}
-
-export function dist(ax, az, bx, bz) {
-  return Math.sqrt(dist2(ax, az, bx, bz));
-}
-
-// Shortest signed difference between two headings, in (-PI, PI].
-export function angleDiff(a, b) {
-  let d = (a - b) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d <= -Math.PI) d += Math.PI * 2;
-  return d;
-}
-
-export function angleLerp(a, b, t) {
-  return a + angleDiff(b, a) * t;
-}
-
-export function formatCash(n) {
-  return '$' + Math.floor(n).toLocaleString('en-US');
-}
-
-export function formatClock(hour) {
-  const h = Math.floor(hour) % 24;
-  const m = Math.floor((hour % 1) * 60);
-  const ap = h >= 12 ? 'PM' : 'AM';
-  const hh = h % 12 === 0 ? 12 : h % 12;
-  return hh + ':' + String(m).padStart(2, '0') + ' ' + ap;
-}
+export const WEAPONS = [
+  { name: 'Fists', damage: 12, range: 46, rate: 0.35 },
+  { name: 'Pistol', damage: 34, range: 320, rate: 0.28 },
+  { name: 'SMG', damage: 18, range: 280, rate: 0.09 },
+];
