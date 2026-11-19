@@ -1,4 +1,4 @@
-// Solmar Heat — city.js (r8)
+// Solmar Heat — city.js (r9)
 // Procedural layout of Solmar: a road grid, blocks of buildings, a
 // beach and sea along the west edge, a central park, and the harbor
 // in the south-east. Everything is derived from the seed, so the
@@ -83,6 +83,11 @@ export function districtAt(city, x, y) {
     if (x >= d.x && x <= d.x + d.w && y >= d.y && y <= d.y + d.h) return d.name;
   }
   return 'Solmar';
+}
+
+// r9: a point is "in the park" when it falls inside the open central block.
+export function pointInPark(city, x, y) {
+  return pointInRect(x, y, city.park);
 }
 
 export function nearestRoadPoint(city, x, y) {

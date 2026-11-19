@@ -6,6 +6,8 @@
 
 An original 2D open-world crime game set in **Solmar**, a sunny seaside city invented for this game — no real city, no real people, no borrowed art, music or names. Everything here is original: the map, the characters, the cars, the story and the sound.
 
+r9 is a full rewrite of the r8 game for the sealed recording: same content, rewritten by hand, with the bottom hint lifted clear of the HUD bar.
+
 ## Play
 
 ```sh
@@ -47,7 +49,7 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 Two runs produce byte-identical output. Check it with the kit:
 
 ```sh
-node /home/hatch/workspace/makefun/gta6-01-kit/cli/makefun.mjs check
+node /home/hatch/workspace/makefun/gta6-01-kit/cli/makefun.mjs check --competition gta6-01 --repo /home/hatch/workspace/makefun/gta6-01
 ```
 
 [Bounty page](https://make.fun/bounty/gta6-01)

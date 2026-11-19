@@ -1,4 +1,4 @@
-// Solmar Heat — audio.js (r8)
+// Solmar Heat — audio.js (r9)
 // Every sound is synthesized live with WebAudio: no audio files, no
 // network, no downloads. Engine hum, gunfire, sirens, pickup chimes,
 // crash thuds and mission jingles are all oscillators and noise.
@@ -68,6 +68,7 @@ export function createAudio() {
     },
     toggleMute() {
       muted = !muted;
+      if (muted && engineGain) engineGain.gain.setTargetAtTime(0, ctx ? ctx.currentTime : 0, 0.05);
       return muted;
     },
     isMuted() {

@@ -1,4 +1,4 @@
-// Solmar Heat — render.js (r8)
+// Solmar Heat — render.js (r9)
 // All canvas drawing, top to bottom: the city (sea, beach, roads,
 // buildings, park, harbor), cars, pedestrians, the player, enemies,
 // bullets and particles, then the HUD (wanted stars, money, health,
@@ -6,7 +6,7 @@
 // wasted / busted screens. Nothing here loads an image or a font
 // from the network; every glyph is a system font.
 import { CONFIG, WEAPONS } from './config.js';
-import { districtAt, pointOnRoad } from './city.js';
+import { districtAt } from './city.js';
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
@@ -223,11 +223,15 @@ function drawHud(state, ctx, W, H) {
   const here = districtAt(state.city, p.inCar ? p.inCar.x : p.x, p.inCar ? p.inCar.y : p.y);
   ctx.fillStyle = '#fff';
   ctx.fillText((p.inCar ? 'In ' + p.inCar.model.name : 'On foot') + '  •  ' + here, pad + 12, pad + 92);
+  // r9: this bottom bar owns the bottom 92px of the screen; the page
+  // hint in index.html floats above it (bottom: 104px) so the two
+  // never overlap.
   ctx.fillStyle = CONFIG.colors.hudBg;
   ctx.fillRect(pad, H - 92, Math.min(640, W - 2 * pad), 78);
+  const weapon = WEAPONS[p.weaponIndex] || WEAPONS[1];
   ctx.fillStyle = '#ffd400';
   ctx.font = 'bold 17px sans-serif';
-  ctx.fillText('[' + WEAPONS[p.weaponIndex].name + ']  1 Fists · 2 Pistol · 3 SMG   —   E enter/exit car · F / click shoot · M mute · P pause · S save', pad + 12, H - 82);
+  ctx.fillText('[' + weapon.name + ']  1 Fists · 2 Pistol · 3 SMG   —   E enter/exit car · F / click shoot · M mute · P pause · S save', pad + 12, H - 82);
   ctx.fillStyle = '#fff';
   ctx.font = '16px sans-serif';
   ctx.fillText(state.missions.message, pad + 12, H - 56);

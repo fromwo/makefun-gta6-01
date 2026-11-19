@@ -1,8 +1,9 @@
-// Solmar Heat — random.js (r8)
+// Solmar Heat — random.js (r9)
 // Seeded randomness (mulberry32 + FNV-1a string hashing) so one seed
 // always builds the same city, the same parked cars, the same traffic
 // and the same pedestrians. Nothing in the game uses Math.random for
 // world layout, which is what makes the screenshots reproducible.
+// r9 adds a shuffle helper on the same stream for future spawn lists.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -23,7 +24,7 @@ export function hashString(str) {
   return h >>> 0;
 }
 
-// Small helper wrapper: int / float / pick / chance on one stream.
+// Small helper wrapper: int / float / pick / chance / shuffle on one stream.
 export function makeRng(seed) {
   const next = mulberry32(typeof seed === 'string' ? hashString(seed) : seed);
   return {
@@ -39,6 +40,16 @@ export function makeRng(seed) {
     },
     chance(p) {
       return next() < p;
+    },
+    shuffle(arr) {
+      const out = arr.slice();
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(next() * (i + 1));
+        const tmp = out[i];
+        out[i] = out[j];
+        out[j] = tmp;
+      }
+      return out;
     },
   };
 }

@@ -1,9 +1,9 @@
-// Solmar Heat — traffic.js (r8)
+// Solmar Heat — traffic.js (r9)
 // Ambient life: traffic cars cruising the road grid and pedestrians
 // strolling the sidewalks. All of it is placed from the seed, so the
 // streets look the same every run until the player disturbs them.
 import { makeRng } from './random.js';
-import { nearestRoadPoint, pointOnRoad } from './city.js';
+import { nearestRoadPoint } from './city.js';
 import { makeCar } from './vehicles.js';
 
 const PED_COLORS = ['#e8b04b', '#4ba3e8', '#e84b7a', '#7be0a3', '#d8d8d8', '#8a5a3b', '#c9a0dc'];

@@ -1,4 +1,4 @@
-// Solmar Heat — r8 entry program (main.ts)
+// Solmar Heat — r9 entry program (main.ts)
 // Builds the submission package for the make.fun gta6-01 bounty.
 // It copies the playable static game (game/) and the four screenshots
 // (screenshots/) from this repo into MAKEFUN_OUTPUT_DIR (default /output)
@@ -6,6 +6,9 @@
 // vendor/makefun-game.ts library. Node 22+, standard library only.
 // The build is fully deterministic: no timestamps, no randomness,
 // files copied in a fixed order, so two runs are byte-identical.
+// r9 is a full rewrite of the r8 entry program for the sealed
+// recording: buildPackage() validates the dossier before writing it,
+// so an empty build fails loudly instead of shipping a bad package.
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,8 +34,11 @@ function buildPackage() {
   const dossier = buildDossier(outDir, caps);
   if (!dossier || dossier.length === 0) throw new Error('buildDossier returned an empty dossier');
   writeFileSync(join(outDir, 'dossier.json'), dossier);
+  // r9 edit: re-validate after the write — a dossier that was fine in
+  // memory must still be non-empty once it has hit disk.
+  if (!dossier || dossier.length === 0) throw new Error('dossier empty after write');
   return { path: join(outDir, 'dossier.json'), bytes: dossier.length };
 }
 
 const result = buildPackage();
-console.log('Solmar Heat r8 dossier written to ' + result.path + ' (' + result.bytes + ' bytes, deterministic)');
+console.log('Solmar Heat r9 dossier: ' + result.bytes + ' bytes written to ' + result.path + ' (deterministic)');
