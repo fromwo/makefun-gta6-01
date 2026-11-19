@@ -1,4 +1,4 @@
-// Solmar Heat — shots.js (r9)
+// Solmar Heat — shots.js (r10)
 // Deterministic staging for screenshots. Opening the game with
 // ?shot=start | drive | mission | chase puts it in a fixed, seeded
 // state — a real render of the game's own code, reproducible from
@@ -14,7 +14,7 @@ export function applyShot(state, shot) {
     p.wantedHeat = 0;
     state.camera.x = 700;
     state.camera.y = 1100;
-    // r9: the title shot resets the mission line too, so the staged
+    // r10: the title shot resets the mission line too, so the staged
     // frame never shows a leftover message from a previous state.
     state.missions.message = 'Drive to the yellow R marker to start your first job.';
     return;
@@ -40,9 +40,10 @@ export function applyShot(state, shot) {
     p.y = 660;
     p.inCar = null;
     p.wanted = 1;
-    // r9 fix: heat must agree with the staged star count — decayWanted
-    // recomputes stars from heat (ceil(heat / 25)), so heat 30 silently
-    // promoted this shot to 2 stars and the patrol car busted the player.
+    // r10 fix (kept from r9): heat must agree with the staged star count
+    // — decayWanted recomputes stars from heat (ceil(heat / 25)), so heat
+    // 30 silently promoted this shot to 2 stars and the patrol car
+    // busted the player. Heat 10 keeps exactly 1 star.
     p.wantedHeat = 10;
     state.missions.index = 0;
     state.missions.stage = 'deliver';
@@ -63,8 +64,9 @@ export function applyShot(state, shot) {
       state.camera.y = car.y;
     }
     p.wanted = 4;
-    // r9 fix: same consistency rule as the mission shot — heat 110
-    // recomputed to 5 stars, so the HUD showed five where four were staged.
+    // r10 fix (kept from r9): same consistency rule as the mission shot
+    // — heat 110 recomputed to 5 stars, so the HUD showed five where
+    // four were staged. Heat 90 keeps exactly 4 stars.
     p.wantedHeat = 90;
     state.missions.index = 1;
     state.missions.stage = 'deliver';

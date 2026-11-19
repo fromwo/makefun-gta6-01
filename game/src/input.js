@@ -1,4 +1,4 @@
-// Solmar Heat — input.js (r9)
+// Solmar Heat — input.js (r10)
 // Keyboard and mouse state for desktop play. WASD / arrows walk and
 // drive, E gets in and out of cars, Space brakes, F or click shoots,
 // 1-3 swap weapons, M mutes, P pauses, S saves. `pressed` holds keys

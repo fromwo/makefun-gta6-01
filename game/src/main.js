@@ -1,4 +1,4 @@
-// Solmar Heat — main.js (r9)
+// Solmar Heat — main.js (r10)
 // Bootstrap and game loop. Builds the city, spawns parked cars, traffic
 // and pedestrians, wires input / audio / save, then runs the update and
 // render loop. Also handles entering and stealing cars, bullets, mission
@@ -165,7 +165,7 @@ function updateBullets(dt) {
         }
       }
     } else if (Math.hypot(p.x - b.x, p.y - b.y) < 16 && !p.inCar) {
-      // r9: clamp health at zero; the wasted screen is driven by <= 0.
+      // r10: clamp health at zero; the wasted screen is driven by <= 0.
       p.health = Math.max(0, p.health - b.damage);
       burst(b.x, b.y, '#f66', 4);
       b.life = 0;
@@ -274,7 +274,7 @@ if (shot) {
 const test = runSelfTest();
 window.SOLMAR_SELFTEST = selfTestReport();
 window.SOLMAR_STATE = () => state;
-window.SOLMAR_BUILD = 'r9';
+window.SOLMAR_BUILD = 'r10';
 if (!test.results.every((r) => r.ok)) console.warn('Solmar Heat self-test failures:\n' + selfTestReport());
 else console.log('Solmar Heat self-test: ' + test.passed + '/' + test.total + ' passed');
 

@@ -1,4 +1,4 @@
-// Solmar Heat — police.js (r9)
+// Solmar Heat — police.js (r10)
 // The wanted system in action: one patrol car per wanted star (up to
 // four) spawns off-screen and chases the player, ramming their car or
 // running them down on foot. Get close to a cop on foot with two or
@@ -44,7 +44,7 @@ export function updatePoliceCars(cops, player, dt, city) {
     cop.y += Math.sin(cop.angle) * cop.speed * dt;
     if (dist < 55) {
       if (player.inCar) {
-        // r9: clamp at zero; the wreck flag is what ends the car.
+        // r10: clamp at zero; the wreck flag is what ends the car.
         player.inCar.health = Math.max(0, player.inCar.health - 14 * dt);
         if (player.inCar.health <= 0) player.inCar.wrecked = true;
       } else {
@@ -59,7 +59,7 @@ export function ensurePolice(state, dt) {
   while (state.policeCars.length < want) {
     state.policeCars.push(spawnPoliceCar(state.player, state.policeCars.length));
   }
-  // r9: drop wrecked patrol cars first when the wanted level falls,
+  // r10: drop wrecked patrol cars first when the wanted level falls,
   // so a live pursuit is not the one that vanishes.
   while (state.policeCars.length > want) {
     const wreckedAt = state.policeCars.findIndex((c) => c.wrecked);

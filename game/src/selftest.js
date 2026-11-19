@@ -1,4 +1,4 @@
-// Solmar Heat — selftest.js (r9)
+// Solmar Heat — selftest.js (r10)
 // Deterministic self-checks that run in the browser on every load
 // (and can run in Node wherever the modules load without a DOM):
 // the RNG is reproducible, the same seed builds the same city twice,
@@ -16,7 +16,7 @@ export function runSelfTest() {
   const a = makeRng(42);
   const b = makeRng(42);
   check('rng-deterministic', a.next() === b.next() && a.int(1, 100) === b.int(1, 100), 'same seed, same stream');
-  // r9: the shuffle helper rides the same stream, so it must agree too.
+  // r10: the shuffle helper rides the same stream, so it must agree too.
   const s1 = makeRng(7).shuffle([1, 2, 3, 4, 5]);
   const s2 = makeRng(7).shuffle([1, 2, 3, 4, 5]);
   check('rng-shuffle-deterministic', JSON.stringify(s1) === JSON.stringify(s2), 'shuffle=' + s1.join(','));

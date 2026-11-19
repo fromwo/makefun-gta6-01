@@ -1,4 +1,4 @@
-// Solmar Heat — player.js (r9)
+// Solmar Heat — player.js (r10)
 // The player on foot: walking and running, building collision,
 // aiming and shooting toward the mouse, switching weapons, and the
 // wanted level (heat) that drives the police response. Entering a
@@ -73,7 +73,7 @@ export function updatePlayerOnFoot(player, city, input, dt, audio) {
 }
 
 export function tryShoot(player, dt) {
-  // r9: fall back to the pistol if a bad save ever hands us an index
+  // r10: fall back to the pistol if a bad save ever hands us an index
   // outside the weapon list, instead of crashing on undefined.
   const w = WEAPONS[player.weaponIndex] || WEAPONS[1];
   if (player.fireCooldown > 0) return null;

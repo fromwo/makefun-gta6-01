@@ -1,4 +1,4 @@
-// Solmar Heat — render.js (r9)
+// Solmar Heat — render.js (r10)
 // All canvas drawing, top to bottom: the city (sea, beach, roads,
 // buildings, park, harbor), cars, pedestrians, the player, enemies,
 // bullets and particles, then the HUD (wanted stars, money, health,
@@ -223,7 +223,7 @@ function drawHud(state, ctx, W, H) {
   const here = districtAt(state.city, p.inCar ? p.inCar.x : p.x, p.inCar ? p.inCar.y : p.y);
   ctx.fillStyle = '#fff';
   ctx.fillText((p.inCar ? 'In ' + p.inCar.model.name : 'On foot') + '  •  ' + here, pad + 12, pad + 92);
-  // r9: this bottom bar owns the bottom 92px of the screen; the page
+  // r10: this bottom bar owns the bottom 92px of the screen; the page
   // hint in index.html floats above it (bottom: 104px) so the two
   // never overlap.
   ctx.fillStyle = CONFIG.colors.hudBg;

@@ -1,4 +1,4 @@
-// Solmar Heat — missions.js (r9)
+// Solmar Heat — missions.js (r10)
 // The three story jobs from three fixers in Solmar.
 //   deliver — reach the pickup, then carry the goods to the dropoff.
 //   escort  — pick up a person, then reach the safehouse in time.
@@ -112,7 +112,7 @@ export function updateMissions(missions, state, dt, audio) {
 export function completeMission(missions, state, audio) {
   const def = currentMission(missions);
   if (!def) return;
-  // r9: never pay the same job twice, even if the deliver zone is
+  // r10: never pay the same job twice, even if the deliver zone is
   // re-entered on the same frame the stage flips.
   if (missions.completed.includes(def.id)) return;
   state.player.money += def.reward;
@@ -133,7 +133,7 @@ export function completeMission(missions, state, audio) {
 export function retryMission(missions) {
   if (missions.stage === 'failed') {
     missions.stage = 'idle';
-    // r9: a retry starts with a clean clock, not the expired one.
+    // r10: a retry starts with a clean clock, not the expired one.
     missions.timer = 0;
     missions.message = 'Job reset. Drive to the R marker to try again.';
   }

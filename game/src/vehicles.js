@@ -1,4 +1,4 @@
-// Solmar Heat — vehicles.js (r9)
+// Solmar Heat — vehicles.js (r10)
 // Cars: how they are built, where parked cars spawn, arcade driving
 // physics (accelerate, brake, steer, crash into buildings, wreck),
 // and the simple straight-line driver used by ambient traffic.
@@ -76,7 +76,7 @@ export function updateDrivenCar(car, input, dt, city, audio) {
   const ny = car.y + Math.sin(car.angle) * car.speed * dt;
   if (collidesBuilding(city, nx, ny, 22)) {
     car.speed *= -0.25;
-    // r9: clamp health at zero so a wrecked car never goes negative.
+    // r10: clamp health at zero so a wrecked car never goes negative.
     car.health = Math.max(0, car.health - 6);
     if (audio) audio.crash();
     if (car.health <= 0) car.wrecked = true;

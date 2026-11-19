@@ -1,4 +1,4 @@
-// Solmar Heat — config.js (r9)
+// Solmar Heat — config.js (r10)
 // Every tunable number for the game lives here: the city grid, the
 // player and car handling, the wanted ladder, the three story jobs,
 // the car roster and the weapons. Solmar itself is an invented city;
@@ -21,7 +21,7 @@ export const CONFIG = {
   maxWanted: 5,
   startMoney: 150,
   startHealth: 100,
-  // r9: the page hint floats this many pixels above the viewport bottom,
+  // r10: the page hint floats this many pixels above the viewport bottom,
   // clear of the HUD bar drawn at the bottom of the canvas.
   hintBottomPx: 104,
   colors: {

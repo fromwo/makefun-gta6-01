@@ -1,4 +1,4 @@
-// Solmar Heat — traffic.js (r9)
+// Solmar Heat — traffic.js (r10)
 // Ambient life: traffic cars cruising the road grid and pedestrians
 // strolling the sidewalks. All of it is placed from the seed, so the
 // streets look the same every run until the player disturbs them.

@@ -1,4 +1,4 @@
-// Solmar Heat — save.js (r9)
+// Solmar Heat — save.js (r10)
 // localStorage save / load: money, health, position, wanted level,
 // mission progress, completed jobs and the selected weapon. The save
 // is versioned, so a save from an older build can never crash a load —
@@ -57,7 +57,7 @@ export function applySave(state, data) {
   p.y = data.y;
   p.wanted = data.wanted || 0;
   p.wantedHeat = data.wantedHeat || 0;
-  // r9: a hand-edited save with a wild weapon index falls back to the
+  // r10: a hand-edited save with a wild weapon index falls back to the
   // pistol instead of breaking the HUD weapon lookup.
   p.weaponIndex = (data.weaponIndex >= 0 && data.weaponIndex <= 2) ? data.weaponIndex : 1;
   state.missions.index = data.missionIndex || 0;
