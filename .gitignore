@@ -1,11 +1,16 @@
-# Build output and local tooling
+# Solmar Heat — files that never get committed.
+# Build output from main.ts and from local runs.
 out/
+output/
 dist/
+
+# Local tooling and caches.
 node_modules/
 *.log
 *.tmp
+*.out
 
-# OS and editor clutter
+# Editor and OS clutter.
 .DS_Store
 Thumbs.db
 .vscode/
@@ -13,5 +18,4 @@ Thumbs.db
 *.swp
 *~
 
-# Keep the shipped screenshots tracked; only scratch stays out.
-!screenshots/
+# Screenshots are part of the entry and stay tracked.

@@ -1,68 +1,133 @@
-// Solmar Heat — the screenshot scenes behind ?shot=start|drive|mission|chase.
-// Each one plays the real rules forward from a fresh seeded world with a
-// scripted driver, so the frame is what a short game really looks like and
-// the same seed always gives the same frame.
+// Solmar Heat — screenshot scenes.
+// Each scene poses the real game at a fixed seed and steps the simulation
+// forward so the frame is what a short session really looks like: the title
+// over the pier, a drive down the main avenue, a job in progress, and a
+// four-star chase. The game loop keeps running after staging, so the shot
+// the browser takes is a live frame, not a still.
 
 import { WORLD } from './config.js';
+import { makeVehicle, driveVehicle } from './vehicles.js';
+import { dist } from './config.js';
 
-const STEP = 1 / 60;
-
-function driveForward(game, seconds, steerKeys) {
-  const steps = Math.round(seconds / STEP);
+function settleTraffic(game, steps) {
+  const world = game.world;
   for (let i = 0; i < steps; i += 1) {
-    const keys = ['KeyW'];
-    if (steerKeys) keys.push(...steerKeys);
-    game.step(STEP, { keys, mouse: null });
+    world.traffic.update(1 / 60, { player: world.player, playerVehicle: world.player.inVehicle });
   }
 }
 
-function walkTo(game, seconds, keys) {
-  const steps = Math.round(seconds / STEP);
-  for (let i = 0; i < steps; i += 1) {
-    game.step(STEP, { keys, mouse: null });
-  }
-}
+export function stageShot(name, game, seed) {
+  game.reset(seed || 11);
+  const world = game.world;
+  const p = world.player;
 
-/**
- * Stage the named scene on a fresh game and return the screen to show.
- * start: the title screen over a living Downtown. drive: Rio in a Cometa GT
- * on Sunset Blvd with traffic around. mission: the first job, waypoint lit.
- * chase: three stars, cruisers closing in behind Rio's car.
- */
-export function stageShot(name, game) {
-  game.reset(7);
+  if (name === 'start') {
+    // Rae on the pier at golden hour, the city behind her, title on top.
+    p.x = -90;
+    p.z = 306;
+    p.heading = Math.PI;
+    game.state = 'title';
+    game.showHowTo = false;
+    settleTraffic(game, 30);
+    game.renderer.updateCamera(p, null, 1);
+    return { screen: 'title' };
+  }
+
   if (name === 'drive') {
-    game.begin(false);
-    game.teleport(700, 620);
-    game.giveCar('sport', 700, 620, 0);
-    // A short burst down Sunset Blvd: fast enough to feel quick, short
-    // enough that the car stays near the middle of the frame.
-    driveForward(game, 2.8, []);
-    game.step(STEP, { keys: [], mouse: null });
-    return 'play';
+    // A Veloce GT flying down the main avenue, traffic around, job one live.
+    const car = makeVehicle('coupe', 0, 120, 0, '#c83828');
+    car.driver = 'player';
+    car.speed = 30;
+    world.traffic.cars.push(car);
+    p.inVehicle = car;
+    p.x = car.x;
+    p.z = car.z;
+    p.heading = 0;
+    world.missions.startNext();
+    game.state = 'play';
+    for (let i = 0; i < 60; i += 1) {
+      driveVehicle(car, 1, 0, 1 / 60, world.city, false);
+      p.x = car.x;
+      p.z = car.z;
+      world.traffic.update(1 / 60, { player: p, playerVehicle: car });
+    }
+    game.renderer.updateCamera(p, car, 1);
+    return { screen: 'play' };
   }
+
   if (name === 'mission') {
-    game.begin(false);
-    game.teleport(620, 1020);
-    game.missions.startNext(game.ctx());
-    walkTo(game, 2.5, ['KeyW', 'KeyA']);
-    return 'play';
+    // Job five: the warehouse crew, pistol in hand, one star already lit.
+    // Staged on the avenue so the player, the crew and the marker are all
+    // in one clear view down the road — never inside a block.
+    world.missions.index = 4;
+    world.missions.startNext();
+    p.armed = true;
+    p.ammo = 48;
+    p.x = 120;
+    p.z = 96;
+    p.heading = 0;
+    world.police.addHeat(1, 'mission');
+    game.state = 'play';
+    for (let i = 0; i < 40; i += 1) {
+      world.police.update(1 / 60, { player: p, playerVehicle: null });
+      world.traffic.update(1 / 60, { player: p, playerVehicle: null });
+    }
+    game.renderer.updateCamera(p, null, 1);
+    return { screen: 'play' };
   }
+
   if (name === 'chase') {
-    game.begin(false);
-    game.teleport(1400, 1020);
-    game.giveCar('coupe', 1400, 1020, Math.PI / 2);
-    game.setHeat(3.1);
-    driveForward(game, 4.0, []);
-    // Let the cruisers close in for a frame with the sirens on.
-    for (let i = 0; i < 30; i += 1) game.step(STEP, { keys: ['KeyW'], mouse: null });
-    return 'play';
+    // Four stars, three cruisers closing in, the getaway job on the HUD.
+    const car = makeVehicle('coupe', 0, -60, 0, '#e8a018');
+    car.driver = 'player';
+    car.speed = 34;
+    car.damage = 62;
+    world.traffic.cars.push(car);
+    p.inVehicle = car;
+    p.x = car.x;
+    p.z = car.z;
+    p.heading = 0;
+    world.missions.index = 6;
+    world.missions.startNext();
+    world.police.addHeat(4, 'chase');
+    game.state = 'play';
+    for (let i = 0; i < 50; i += 1) {
+      driveVehicle(car, 1, 0, 1 / 60, world.city, false);
+      p.x = car.x;
+      p.z = car.z;
+      world.police.update(1 / 60, { player: p, playerVehicle: car });
+      world.traffic.update(1 / 60, { player: p, playerVehicle: car });
+      if (i % 6 === 0) game.addSmoke(car.x, car.z, 1.4);
+    }
+    // Put two cruisers where the camera can see them: one closing from
+    // ahead-right, one on the flank — a chase reads better than a minimap
+    // full of dots the frame never shows.
+    if (world.police.units[0]) {
+      const lead = world.police.units[0].car;
+      lead.x = p.x + 16;
+      lead.z = p.z + 34;
+      lead.heading = Math.PI;
+      lead.speed = 20;
+    }
+    if (world.police.units[1]) {
+      const flank = world.police.units[1].car;
+      flank.x = p.x - 18;
+      flank.z = p.z + 20;
+      flank.heading = Math.PI * 0.75;
+      flank.speed = 18;
+    }
+    // Full health and a quiet few seconds for the shot: the frame loop
+    // keeps playing after staging, and four-star police would otherwise
+    // shoot the player bloody before the shutter falls.
+    p.health = p.maxHealth;
+    p.hurtFlash = 0;
+    world.police.shotTimer = 5;
+    game.renderer.updateCamera(p, car, 1);
+    return { screen: 'play' };
   }
-  // start (and anything unknown): the title over a living city.
-  game.state.screen = 'title';
-  game.camera.x = 560;
-  game.camera.y = 120;
-  for (let i = 0; i < 180; i += 1) game.step(STEP, { keys: [], mouse: null });
-  game.state.screen = 'title';
-  return 'title';
+
+  // Unknown scene name: fall back to the title.
+  game.state = 'title';
+  game.renderer.updateCamera(p, null, 1);
+  return { screen: 'title' };
 }

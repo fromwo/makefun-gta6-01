@@ -1,280 +1,332 @@
-// Solmar Heat — the story: six jobs for the fixer Mara Voss, plus a taxi
-// side hustle and twelve hidden sun-packages scattered around the city.
-// Each mission is a list of steps; the runner watches the world and moves
-// the player from one step to the next, paying out when the list is done.
+// Solmar Heat — missions and side work.
+// Rae Vega arrives in Solmar with $120 and a name to make. Eight story jobs
+// from fixer Mara Sol, each a short chain of steps the engine checks against
+// the live world: go somewhere, steal a car, pick someone up, lose the cops,
+// outshoot a crew, beat a sunset race. Between jobs the city offers taxi
+// fares and twelve hidden cash stashes. The engine owns no rendering; it
+// exposes the current objective text and the marker the HUD draws.
 
-import { TUNING } from './config.js';
-import { makeCar } from './vehicles.js';
+import { RNG } from './random.js';
+import { ECONOMY, dist, clamp } from './config.js';
 import { randomStreetPoint } from './city.js';
 
-export const FIXER = 'Mara Voss';
-export const HERO = 'Rio Kane';
+function at(x, z) {
+  return { x, z };
+}
 
 export const MISSIONS = [
   {
-    id: 1, title: 'First Errand', reward: 350,
-    brief: 'Mara needs a package moved across town. No questions, no cops.',
+    id: 'fresh-off-the-ferry',
+    title: 'Fresh Off the Ferry',
+    giver: 'Mara Sol',
+    brief: 'You just docked with $120 and no friends. Mara runs the garage on Coral Row — drive over and introduce yourself.',
+    reward: 150,
     steps: [
-      { kind: 'goto', text: 'Pick up the package at the Marina', x: 500, y: 1000, r: 60 },
-      { kind: 'goto', text: 'Deliver it to the Downtown tower', x: 1000, y: 300, r: 60 },
+      { kind: 'goto', text: 'Drive to Mara\'s garage on Coral Row', pos: at(90, -30), radius: 10 },
     ],
   },
   {
-    id: 2, title: 'Hot Wheels', reward: 500,
-    brief: 'A Cometa GT is parked by the plaza. Bring it to the garage, fast.',
+    id: 'borrowed-wheels',
+    title: 'Borrowed Wheels',
+    giver: 'Mara Sol',
+    brief: 'Mara needs a car that cannot be traced to her. Take any car on the street — the cops will notice, so be quick — and bring it to the lockup.',
+    reward: 300,
     steps: [
-      { kind: 'goto', text: 'Find the Cometa GT by the plaza', x: 1300, y: 1300, r: 70 },
-      { kind: 'enterCar', text: 'Get in the Cometa GT', x: 1300, y: 1300, r: 90 },
-      { kind: 'gotoTimed', text: 'Drive it to the garage', x: 2500, y: 500, r: 70, time: 75 },
+      { kind: 'enterCar', text: 'Steal any car (E next to it)' },
+      { kind: 'goto', text: 'Deliver the car to the lockup', pos: at(-90, 90), radius: 10, inCar: true },
     ],
   },
   {
-    id: 3, title: 'Tail the Courier', reward: 650,
-    brief: 'A courier is carrying Mara\'s ledger. Stop his car — gently is optional.',
+    id: 'the-long-way-home',
+    title: 'The Long Way Home',
+    giver: 'Mara Sol',
+    brief: 'A nervous regular needs a ride across town and pays in cash. Pick him up, then drop him at the marina — smooth driving earns a tip.',
+    reward: 220,
     steps: [
-      { kind: 'ramCar', text: 'Stop the courier\'s car', x: 2100, y: 900, r: 9999 },
-      { kind: 'goto', text: 'Grab the ledger from the wreck', x: 2100, y: 900, r: 60 },
+      { kind: 'pickup', text: 'Pick up the passenger at the plaza', pos: at(-30, -90), radius: 8 },
+      { kind: 'deliver', text: 'Drop the passenger at the marina', pos: at(210, 250), radius: 10 },
     ],
   },
   {
-    id: 4, title: 'Lose the Heat', reward: 450,
-    brief: 'The cops saw too much. Break line of sight and let the heat die down.',
+    id: 'hot-property',
+    title: 'Hot Property',
+    giver: 'Mara Sol',
+    brief: 'Three of Mara\'s stashes are sitting in the open. Sweep them up before someone else does — the map marks each one.',
+    reward: 400,
     steps: [
-      { kind: 'escape', text: 'Lose the police — stay out of sight', x: 0, y: 0, r: 0, time: 120 },
+      { kind: 'collect', text: 'Collect the stash at the stadium', pos: at(-150, -110), radius: 8 },
+      { kind: 'collect', text: 'Collect the stash by the tower', pos: at(150, -110), radius: 8 },
+      { kind: 'collect', text: 'Collect the stash on the pier', pos: at(-90, 300), radius: 8 },
     ],
   },
   {
-    id: 5, title: 'Harbor Standoff', reward: 800,
-    brief: 'Rivals are holding the harbor docks. Clear them out and take the crate.',
+    id: 'loud-neighbours',
+    title: 'Loud Neighbours',
+    giver: 'Mara Sol',
+    brief: 'A crew is leaning on Mara\'s drivers. She finally hands you a pistol — go to the warehouse yard and make them leave Solmar alone.',
+    reward: 550,
     steps: [
-      { kind: 'goto', text: 'Reach the harbor docks', x: 2700, y: 1300, r: 80 },
-      { kind: 'defeat', text: 'Clear out the rivals', x: 2700, y: 1300, r: 200, count: 5 },
-      { kind: 'goto', text: 'Collect the crate', x: 2700, y: 1300, r: 60 },
+      { kind: 'defeat', text: 'Deal with the crew at the warehouse yard', pos: at(120, 120), radius: 14, count: 3 },
     ],
   },
   {
-    id: 6, title: 'The Sunset Job', reward: 1500,
-    brief: 'One last score: the Harbor bank, then vanish down the beach road.',
+    id: 'sunset-run',
+    title: 'Sunset Run',
+    giver: 'Dario Fontaine',
+    brief: 'Dario bets his Veloce against your nerve: four checkpoints, one sunset, no cops invited. Beat the clock and the car is yours to keep — well, his to lose.',
+    reward: 700,
     steps: [
-      { kind: 'goto', text: 'Reach the Harbor bank', x: 2300, y: 1100, r: 70 },
-      { kind: 'gotoTimed', text: 'Grab the cash and run — 60 seconds', x: 2300, y: 1100, r: 70, time: 60 },
-      { kind: 'escape', text: 'Escape to the South Beach safehouse', x: 1600, y: 2150, r: 90, time: 150 },
+      { kind: 'race', text: 'Race the checkpoints before the clock runs out', points: [at(210, -210), at(-210, -210), at(-210, 210), at(210, 210)], timeLimit: 95 },
+    ],
+  },
+  {
+    id: 'the-getaway',
+    title: 'The Getaway',
+    giver: 'Mara Sol',
+    brief: 'The job went loud. Grab the bag from the bank steps, then lose the heat — the garage is only safe once the stars are gone.',
+    reward: 900,
+    steps: [
+      { kind: 'goto', text: 'Grab the bag at the bank steps', pos: at(30, 30), radius: 8 },
+      { kind: 'lose', text: 'Lose the police, then reach the garage', pos: at(90, -30), radius: 10 },
+    ],
+  },
+  {
+    id: 'heat-wave',
+    title: 'Heat Wave',
+    giver: 'Mara Sol',
+    brief: 'The crew that leaned on Mara is back with friends, and the pier is the only way out of Solmar tonight. Clear the dock, then drive for the ferry.',
+    reward: 1500,
+    steps: [
+      { kind: 'defeat', text: 'Clear the crew off the pier road', pos: at(-90, 270), radius: 16, count: 5 },
+      { kind: 'goto', text: 'Drive to the ferry at the end of the pier', pos: at(-90, 320), radius: 8, inCar: true },
     ],
   },
 ];
 
-export class MissionRunner {
-  constructor(city, rng) {
+export class MissionEngine {
+  constructor(city, seed) {
     this.city = city;
-    this.rng = rng;
-    this.index = 0; // next mission to offer (0-based into MISSIONS)
-    this.active = null; // {def, step, timer, targetCar, rivals, defeated}
-    this.completed = 0;
-    this.packages = [];
-    this.packagesFound = 0;
-    this.taxi = null; // {fare, dest, timer}
-    this.taxiDone = 0;
+    this.rng = new RNG(seed + 31);
+    this.index = 0; // next mission to start
+    this.done = [];
+    this.active = null; // { mission, step, timer, defeated, goons, racePoint, passenger }
+    this.taxi = null; // side fare: { pickup, dropoff, timer, fare, hasPassenger }
+    this.message = '';
+    this.messageUntil = 0;
+    this.time = 0;
   }
 
-  reset() {
-    this.index = 0;
-    this.active = null;
-    this.completed = 0;
-    this.packagesFound = 0;
-    this.taxi = null;
-    this.taxiDone = 0;
-    this._scatterPackages();
-  }
-
-  _scatterPackages() {
-    this.packages = [];
-    for (let i = 0; i < TUNING.packagesTotal; i += 1) {
-      const spot = randomStreetPoint(this.rng, this.city);
-      this.packages.push({ x: spot.x, y: spot.y, taken: false, bob: this.rng.range(0, 6) });
-    }
-  }
-
-  currentDef() {
+  current() {
     return MISSIONS[this.index] || null;
   }
 
-  startNext(ctx) {
-    const def = this.currentDef();
-    if (!def) return false;
-    this.active = { def, step: 0, timer: 0, targetCar: null, rivals: [], defeated: 0 };
-    this._enterStep(ctx);
-    ctx.onEvent('missionStart', { title: def.title, brief: def.brief });
-    return true;
+  get finished() {
+    return this.index >= MISSIONS.length;
   }
 
-  _enterStep(ctx) {
-    const step = this.active.def.steps[this.active.step];
+  startNext() {
+    const mission = this.current();
+    if (!mission) return null;
+    this.active = {
+      mission,
+      step: 0,
+      timer: 0,
+      defeated: 0,
+      goons: [],
+      racePoint: 0,
+      passenger: false,
+      startedAt: this.time,
+    };
+    this._enterStep();
+    return mission;
+  }
+
+  abort() {
+    this.active = null;
+    this.taxi = null;
+  }
+
+  _step() {
+    return this.active ? this.active.mission.steps[this.active.step] : null;
+  }
+
+  _enterStep() {
+    const step = this._step();
     if (!step) return;
-    this.active.timer = step.time || 0;
-    if (this.active.def.id === 2 && this.active.step === 0) {
-      // Park the Cometa GT by the plaza so the job has a real car to steal.
-      const gt = makeCar('sport', step.x, step.y, Math.PI / 2, { color: '#c22a5e' });
-      gt.parked = true;
-      ctx.cars.push(gt);
-      this.active.gtCar = gt;
-    }
-    if (step.kind === 'ramCar') {
-      const car = makeCar('coupe', step.x, step.y, 0, { color: '#39b8b0', hp: 120 });
-      car.traffic = true;
-      car.fleeing = true;
-      this.active.targetCar = car;
-      ctx.cars.push(car);
-    }
     if (step.kind === 'defeat') {
-      this.active.rivals = [];
+      this.active.goons = [];
       for (let i = 0; i < step.count; i += 1) {
-        const rival = {
-          x: step.x + this.rng.range(-120, 120),
-          y: step.y + this.rng.range(-120, 120),
-          hp: 50, angle: 0, shootTimer: this.rng.range(0.5, 1.5),
-          color: '#c22a5e', rival: true, down: false,
-        };
-        this.active.rivals.push(rival);
+        this.active.goons.push({
+          x: step.pos.x + this.rng.range(-10, 10),
+          z: step.pos.z + this.rng.range(-10, 10),
+          heading: 0,
+          health: 100,
+          alive: true,
+          speed: 3.2,
+          shootTimer: this.rng.range(1, 2.5),
+        });
       }
+      this.active.defeated = 0;
     }
-    if (step.kind === 'escape' && this.active.def.id === 4) {
-      ctx.addHeat(2.6);
+    if (step.kind === 'race') {
+      this.active.timer = step.timeLimit;
+      this.active.racePoint = 0;
     }
-    if (step.kind === 'escape' && this.active.def.id === 6) {
-      ctx.addHeat(3.4);
+    if (step.kind === 'lose') {
+      this.active.timer = 0;
     }
   }
 
   objectiveText() {
-    if (!this.active) {
-      const def = this.currentDef();
-      return def ? `Next job: ${def.title} — press Enter to start` : 'All jobs done. Solmar is yours.';
+    if (this.active) {
+      const step = this._step();
+      if (step) return step.text;
     }
-    const step = this.active.def.steps[this.active.step];
-    let text = `${this.active.def.title}: ${step.text}`;
-    if (step.kind === 'defeat') {
-      text += ` (${this.active.defeated}/${step.count})`;
-    }
-    if (step.time) text += ` — ${Math.ceil(this.active.timer)}s`;
-    return text;
-  }
-
-  waypoint() {
-    if (!this.active) return null;
-    const step = this.active.def.steps[this.active.step];
-    if (step.kind === 'ramCar' && this.active.targetCar) {
-      return { x: this.active.targetCar.x, y: this.active.targetCar.y };
-    }
-    if (step.kind === 'escape') {
-      return this.active.def.id === 6 ? { x: 1600, y: 2150 } : null;
-    }
-    if (this.active.stepTarget) return this.active.stepTarget;
-    return { x: step.x, y: step.y };
-  }
-
-  update(dt, ctx) {
-    const { player } = ctx;
-    // Sun-packages: walk or drive over one to collect it.
-    for (const pack of this.packages) {
-      if (pack.taken) continue;
-      pack.bob += dt;
-      if (Math.hypot(player.x - pack.x, player.y - pack.y) < 34) {
-        pack.taken = true;
-        this.packagesFound += 1;
-        ctx.onEvent('package', { cash: TUNING.packageReward });
-      }
-    }
-    // Taxi: pick up a fare with T near a pedestrian while driving.
     if (this.taxi) {
-      this.taxi.timer -= dt;
-      const dest = this.taxi.dest;
-      if (Math.hypot(player.x - dest.x, player.y - dest.y) < 70) {
-        ctx.onEvent('taxiDone', { cash: TUNING.taxiFare + Math.round(this.taxi.timer) });
-        this.taxiDone += 1;
-        this.taxi = null;
-      } else if (this.taxi.timer <= 0) {
-        ctx.onEvent('taxiFail', {});
-        this.taxi = null;
-      }
+      return this.taxi.hasPassenger
+        ? 'Taxi fare: drop the passenger at the marker'
+        : 'Taxi fare: pick up the passenger at the marker';
     }
-    if (!this.active) return;
-    const step = this.active.def.steps[this.active.step];
-    if (step.time) {
-      this.active.timer -= dt;
-      if (this.active.timer <= 0 && step.kind !== 'escape') {
-        this._fail(ctx, 'Out of time.');
-        return;
-      }
-      if (step.kind === 'escape' && this.active.timer <= 0) {
-        this._fail(ctx, 'The cops closed in.');
-        return;
-      }
-    }
-    switch (step.kind) {
-      case 'goto':
-      case 'gotoTimed': {
-        const target = this.active.stepTarget || step;
-        if (Math.hypot(player.x - target.x, player.y - target.y) < step.r) this._advance(ctx);
-        break;
-      }
-      case 'enterCar': {
-        if (!player.onFoot && player.car && player.car.model === 'sport') this._advance(ctx);
-        break;
-      }
-      case 'ramCar': {
-        const car = this.active.targetCar;
-        if (car && car.hp <= 0) {
-          // The ledger lies where the wreck stopped; remember it per-run
-          // instead of rewriting the shared mission table.
-          this._advance(ctx);
-          if (this.active) this.active.stepTarget = { x: car.x, y: car.y };
-        }
-        break;
-      }
-      case 'defeat': {
-        if (this.active.defeated >= step.count) this._advance(ctx);
-        break;
-      }
-      case 'escape': {
-        const atSafehouse = this.active.def.id === 6
-          && Math.hypot(player.x - 1600, player.y - 2150) < 90;
-        if (ctx.heat < 0.5 && (this.active.def.id === 4 || atSafehouse)) this._advance(ctx);
-        break;
-      }
-      default: break;
-    }
+    if (this.finished) return 'Solmar is yours — free roam, fares and stashes remain';
+    return 'No job active — drive to the yellow marker to start: ' + this.current().title;
   }
 
-  /** A rival went down; called by the main loop when a bullet lands. */
-  rivalDown(rival) {
-    if (!this.active) return;
-    this.active.defeated += 1;
+  marker() {
+    if (this.active) {
+      const step = this._step();
+      if (!step) return null;
+      if (step.kind === 'race') return step.points[this.active.racePoint] || null;
+      if (step.kind === 'enterCar') return null;
+      if (step.kind === 'defeat') return step.pos;
+      if (step.kind === 'lose') {
+        // While the heat is on, the marker is the hideout; the step only
+        // completes once the wanted level is clear.
+        return step.pos;
+      }
+      return step.pos || null;
+    }
+    if (this.taxi) return this.taxi.hasPassenger ? this.taxi.dropoff : this.taxi.pickup;
+    if (!this.finished) {
+      // Idle marker: where the next job begins (mission 1's start).
+      const first = MISSIONS[this.index].steps[0];
+      return first.pos || null;
+    }
+    return null;
   }
 
-  startTaxi(ctx) {
-    if (this.taxi || !ctx.player.car) return false;
-    const dest = randomStreetPoint(this.rng, this.city);
-    this.taxi = { dest, timer: 90 };
-    ctx.onEvent('taxiStart', { dest });
-    return true;
+  startTaxi(player) {
+    if (this.taxi || this.active) return null;
+    const pickup = randomStreetPoint(this.rng);
+    let dropoff = randomStreetPoint(this.rng);
+    let guard = 0;
+    while (dist(pickup.x, pickup.z, dropoff.x, dropoff.z) < 120 && guard < 20) {
+      dropoff = randomStreetPoint(this.rng);
+      guard += 1;
+    }
+    const fare = Math.round(
+      ECONOMY.taxiBase + ECONOMY.taxiPerMetre * dist(pickup.x, pickup.z, dropoff.x, dropoff.z),
+    );
+    this.taxi = { pickup, dropoff, timer: 120, fare, hasPassenger: false };
+    return this.taxi;
   }
 
-  _advance(ctx) {
+  damageGoon(goon, amount) {
+    if (!goon.alive) return false;
+    goon.health -= amount;
+    if (goon.health <= 0) {
+      goon.alive = false;
+      if (this.active) this.active.defeated += 1;
+      return true;
+    }
+    return false;
+  }
+
+  // Advance one step; returns 'stage' when a step completes.
+  _advance(events) {
     this.active.step += 1;
-    if (this.active.step >= this.active.def.steps.length) {
-      const reward = this.active.def.reward;
-      ctx.onEvent('missionDone', { title: this.active.def.title, cash: reward });
-      this.completed += 1;
+    if (this.active.step >= this.active.mission.steps.length) {
+      const mission = this.active.mission;
+      this.done.push(mission.id);
       this.index += 1;
       this.active = null;
-      return;
+      events.push({ type: 'missionComplete', mission });
+      return 'done';
     }
-    this._enterStep(ctx);
-    ctx.onEvent('missionStep', { text: this.objectiveText() });
+    this._enterStep();
+    events.push({ type: 'stage', mission: this.active.mission });
+    return 'stage';
   }
 
-  _fail(ctx, reason) {
-    ctx.onEvent('missionFail', { title: this.active.def.title, reason });
-    this.active = null;
+  // ctx: { player, playerVehicle, wanted, time, inCar, goonsShot }
+  update(dt, ctx) {
+    this.time += dt;
+    const events = [];
+    const p = ctx.player;
+    const veh = ctx.playerVehicle;
+
+    if (this.active) {
+      const step = this._step();
+      const a = this.active;
+      if (step.kind === 'race') {
+        a.timer -= dt;
+        const target = step.points[a.racePoint];
+        if (target && dist(p.x, p.z, target.x, target.z) < 12) {
+          a.racePoint += 1;
+          events.push({ type: 'checkpoint', point: a.racePoint });
+          if (a.racePoint >= step.points.length) this._advance(events);
+        } else if (a.timer <= 0) {
+          events.push({ type: 'missionFailed', mission: a.mission, reason: 'Out of time on the Sunset Run.' });
+          this.active = null;
+        }
+      } else if (step.kind === 'defeat') {
+        if (a.defeated >= step.count) this._advance(events);
+      } else if (step.kind === 'enterCar') {
+        if (veh) this._advance(events);
+      } else if (step.kind === 'lose') {
+        if (ctx.wanted === 0 && dist(p.x, p.z, step.pos.x, step.pos.z) < step.radius) {
+          this._advance(events);
+        }
+      } else if (step.pos) {
+        const inCarOk = !step.inCar || !!veh;
+        if (dist(p.x, p.z, step.pos.x, step.pos.z) < step.radius && inCarOk) {
+          if (step.kind === 'pickup') a.passenger = true;
+          this._advance(events);
+        }
+      }
+      // Mission 7's heat: grabbing the bag brings two stars.
+      if (this.active && this.active.mission.id === 'the-getaway' && this.active.step === 1 && !this.active.heatAdded) {
+        this.active.heatAdded = true;
+        events.push({ type: 'heat', amount: 2 });
+      }
+      // Mission 5 hands the player a pistol at its start.
+      if (this.active && this.active.mission.id === 'loud-neighbours' && !this.active.armedGiven) {
+        this.active.armedGiven = true;
+        events.push({ type: 'arm', armed: true });
+      }
+    } else if (!this.finished && ctx.autoStart) {
+      // Standing on the next job's start marker begins it.
+      const first = this.current().steps[0];
+      if (first.pos && dist(p.x, p.z, first.pos.x, first.pos.z) < first.radius) {
+        const mission = this.startNext();
+        events.push({ type: 'missionStart', mission });
+      }
+    }
+
+    // Taxi fares tick down and pay out on delivery.
+    if (this.taxi) {
+      const t = this.taxi;
+      t.timer -= dt;
+      if (!t.hasPassenger && dist(p.x, p.z, t.pickup.x, t.pickup.z) < 7) {
+        t.hasPassenger = true;
+        events.push({ type: 'taxiPickup' });
+      } else if (t.hasPassenger && dist(p.x, p.z, t.dropoff.x, t.dropoff.z) < 9) {
+        events.push({ type: 'taxiDone', fare: t.fare });
+        this.taxi = null;
+      } else if (t.timer <= 0) {
+        events.push({ type: 'taxiExpired' });
+        this.taxi = null;
+      }
+    }
+    return events;
   }
 }

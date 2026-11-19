@@ -1,46 +1,43 @@
-// Solmar Heat — saving through localStorage.
-// Only the slow-moving facts are stored: cash, health, mission progress,
-// where the player stands and how many sun-packages they found. The city
-// itself is rebuilt from the seed, so a save stays small and versioned.
+// Solmar Heat — saving and loading.
+// One versioned JSON blob in localStorage (with an in-memory fallback so the
+// self-test can run under Node). The save holds progression, not the live
+// simulation: on continue the player wakes at the last safe spot with their
+// cash, missions and collectibles intact.
 
 import { SAVE_KEY, SAVE_VERSION } from './config.js';
 
-export function hasSave() {
+const memoryStore = new Map();
+
+function storage() {
   try {
-    return window.localStorage.getItem(SAVE_KEY) !== null;
+    if (typeof localStorage !== 'undefined' && localStorage) return localStorage;
   } catch {
-    return false;
+    // Private mode or a non-browser host: fall through to memory.
   }
+  return {
+    getItem: (k) => (memoryStore.has(k) ? memoryStore.get(k) : null),
+    setItem: (k, v) => memoryStore.set(k, v),
+    removeItem: (k) => memoryStore.delete(k),
+  };
 }
 
-export function saveGame(game) {
+export function saveGame(data) {
+  const payload = {
+    version: SAVE_VERSION,
+    savedAt: new Date().toISOString(),
+    ...data,
+  };
   try {
-    const state = game.state;
-    const data = {
-      version: SAVE_VERSION,
-      savedAt: Date.now(),
-      cash: state.cash,
-      health: state.player.health,
-      armor: state.player.armor,
-      missionIndex: game.missions.index,
-      missionsDone: game.missions.completed,
-      packagesFound: game.missions.packagesFound,
-      taxiDone: game.missions.taxiDone,
-      x: state.player.x,
-      y: state.player.y,
-      timeOfDay: state.timeOfDay,
-      totalEarned: state.totalEarned,
-    };
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    storage().setItem(SAVE_KEY, JSON.stringify(payload));
     return true;
   } catch {
     return false;
   }
 }
 
-export function loadSave() {
+export function loadGame() {
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
+    const raw = storage().getItem(SAVE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || data.version !== SAVE_VERSION) return null;
@@ -50,27 +47,55 @@ export function loadSave() {
   }
 }
 
+export function hasSave() {
+  return loadGame() !== null;
+}
+
 export function clearSave() {
   try {
-    window.localStorage.removeItem(SAVE_KEY);
+    storage().removeItem(SAVE_KEY);
   } catch {
-    // A save that cannot be cleared is harmless; the game just starts fresh.
+    // Nothing to clear.
   }
 }
 
-/** Apply a loaded save onto a game object. Returns true on success. */
-export function applySave(game, data) {
-  if (!data) return false;
-  const state = game.state;
-  state.cash = data.cash;
-  state.totalEarned = data.totalEarned || 0;
-  state.player.health = data.health;
-  state.player.armor = data.armor || 0;
-  state.player.x = data.x;
-  state.player.y = data.y;
-  game.missions.index = data.missionIndex;
-  game.missions.completed = data.missionsDone;
-  game.missions.packagesFound = data.packagesFound;
-  state.timeOfDay = data.timeOfDay || 10;
-  return true;
+// The shape main.js saves: progression plus the bits worth resuming with.
+export function snapshotForSave(world) {
+  const p = world.player;
+  return {
+    cash: p.cash,
+    health: p.health,
+    missionIndex: world.missions.index,
+    missionsDone: world.missions.done.slice(),
+    stashesTaken: world.city.stashes.filter((s) => s.taken).map((s) => s.id),
+    kills: p.kills,
+    crimes: p.crimes,
+    earned: world.stats.earned,
+    distance: Math.floor(world.stats.distance),
+    playSeconds: Math.floor(world.stats.playSeconds),
+    x: p.x,
+    z: p.z,
+    hour: world.hour,
+  };
+}
+
+export function applySave(world, data) {
+  const p = world.player;
+  p.cash = data.cash;
+  p.health = data.health;
+  p.kills = data.kills || 0;
+  p.crimes = data.crimes || 0;
+  p.x = data.x;
+  p.z = data.z;
+  world.missions.index = data.missionIndex || 0;
+  world.missions.done = (data.missionsDone || []).slice();
+  world.missions.active = null;
+  world.missions.step = 0;
+  for (const stash of world.city.stashes) {
+    stash.taken = (data.stashesTaken || []).includes(stash.id);
+  }
+  world.stats.earned = data.earned || 0;
+  world.stats.distance = data.distance || 0;
+  world.stats.playSeconds = data.playSeconds || 0;
+  world.hour = data.hour || 16.4;
 }

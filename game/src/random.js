@@ -1,64 +1,68 @@
-// Solmar Heat — a tiny seeded random source.
-// Every system that needs chance takes one of these, so a fixed seed replays
-// the same city, the same traffic and the same screenshot staging.
+// Solmar Heat — deterministic randomness.
+// Every procedural choice in the city, traffic and missions draws from one
+// seeded generator, so a screenshot seed always rebuilds the same Solmar.
+// mulberry32 is small, fast and good enough for game content.
 
-export function hashSeed(text) {
-  let hash = 2166136261;
+export function hashString(text) {
+  let h = 2166136261 >>> 0;
   for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  return hash >>> 0;
+  return h >>> 0;
 }
 
 export function mulberry32(seed) {
-  let state = seed >>> 0;
+  let a = seed >>> 0;
   return function next() {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let value = state;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-export class Rng {
+export class RNG {
   constructor(seed) {
-    this.nextFloat = mulberry32(seed);
+    this.seed = seed >>> 0;
+    this.nextFloat = mulberry32(this.seed);
   }
 
   next() {
     return this.nextFloat();
   }
 
-  range(low, high) {
-    return low + (high - low) * this.nextFloat();
+  range(lo, hi) {
+    return lo + (hi - lo) * this.nextFloat();
   }
 
-  int(low, high) {
-    return low + Math.floor(this.nextFloat() * (high - low + 1));
+  int(lo, hi) {
+    return Math.floor(this.range(lo, hi + 1));
+  }
+
+  chance(p) {
+    return this.nextFloat() < p;
   }
 
   pick(list) {
     return list[Math.floor(this.nextFloat() * list.length)];
   }
 
-  chance(probability) {
-    return this.nextFloat() < probability;
-  }
-
-  sign() {
-    return this.nextFloat() < 0.5 ? -1 : 1;
-  }
-
+  // Fisher-Yates, in place, driven by this generator.
   shuffle(list) {
-    const copy = list.slice();
-    for (let i = copy.length - 1; i > 0; i -= 1) {
+    for (let i = list.length - 1; i > 0; i -= 1) {
       const j = Math.floor(this.nextFloat() * (i + 1));
-      const temp = copy[i];
-      copy[i] = copy[j];
-      copy[j] = temp;
+      const tmp = list[i];
+      list[i] = list[j];
+      list[j] = tmp;
     }
-    return copy;
+    return list;
+  }
+
+  // A fresh generator branched from this one, for a subsystem that wants
+  // its own stream without disturbing the parent's sequence.
+  fork(salt) {
+    return new RNG((this.seed ^ Math.imul(hashString(String(salt)), 2654435761)) >>> 0);
   }
 }
