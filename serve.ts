@@ -1,9 +1,11 @@
-// A tiny static server for game/ (Node 22, standard library only), so the
-// entry can be played locally without a build step: `node serve.ts`
-// serves game/ on http://localhost:8080. It sends the MIME types a browser
+// Solmar Heat — a tiny static server for game/ (Node 22, standard library
+// only), so the game can be played locally without a build step:
+//   node serve.ts [--port 8080]
+// It serves game/ on http://localhost:8080, sends the MIME types a browser
 // game needs, refuses any path outside game/, and otherwise does nothing
 // clever: this is a development convenience, not a web server for the
-// internet. Pass --port <n> to serve on another port.
+// internet.
+
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -66,8 +68,5 @@ createServer((request, response) => {
   });
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {
-  console.log(`game/ is on http://localhost:${port}`);
+  console.log(`Solmar Heat is on http://localhost:${port}`);
 });
-
-// Only game/ is ever served: a request for anything outside it is refused
-// before the filesystem is touched.

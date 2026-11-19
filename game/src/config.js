@@ -1,118 +1,114 @@
-// Solmar Heat — every tuning number, colour and name in one place.
-// The world is a fixed 3600 x 2600 coastal city; the renderer shows a
-// 1280 x 720 window of it through a camera that follows the player.
-export const WORLD = { width: 3600, height: 2600 };
-export const VIEW = { width: 1280, height: 720 };
-export const STEP = 1 / 60;
-export const SAVE_KEY = 'solmar-heat.save.v1';
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+// Solmar Heat — shared tuning, palette and world constants.
+// One small file every other module reads, so a balance change lives here.
 
-export const PLAYER = {
-  radius: 13,
-  walkSpeed: 175,
-  runSpeed: 265,
-  maxHp: 100,
-  startMoney: 120,
-  startAmmo: 30,
-  maxAmmo: 120,
-  shootCooldown: 0.22,
-  bulletSpeed: 780,
-  bulletDamage: 34,
-  pickupRadius: 30,
+export const GAME_TITLE = 'Solmar Heat';
+export const GAME_TAGLINE = 'A sun-soaked open-world crime story in the city of Solmar.';
+export const SAVE_KEY = 'solmar-heat-save-v1';
+export const SAVE_VERSION = 1;
+
+// The city is one fixed-size map: 8 blocks wide, 6 blocks deep.
+export const WORLD = {
+  width: 3200,
+  height: 2400,
+  roadEvery: 400,
+  roadWidth: 104,
+  sidewalk: 26,
+  beachTop: 2080,
+  seaTop: 2240,
 };
-
-export const CAR = {
-  accel: 520,
-  brake: 760,
-  reverseAccel: 300,
-  maxSpeed: 560,
-  maxReverse: 170,
-  turnRate: 2.6,
-  grip: 6.5,
-  handbrakeGrip: 2.2,
-  length: 46,
-  width: 22,
-};
-
-export const POLICE = {
-  maxCars: 5,
-  maxCops: 4,
-  chaseSpeed: 590,
-  ramDamage: 9,
-  bustSeconds: 1.6,
-  spawnDistance: 420,
-};
-
-export const WANTED = { decaySeconds: 22, max: 5 };
 
 export const DISTRICTS = [
-  { name: 'Old Marina', x: 240, y: 240, w: 780, h: 560 },
-  { name: 'Palm Heights', x: 1080, y: 240, w: 780, h: 560 },
-  { name: 'Solmar Beach', x: 240, y: 860, w: 780, h: 560 },
-  { name: 'Central Park', x: 1080, y: 860, w: 780, h: 560 },
-  { name: 'Harbor Lights', x: 1920, y: 240, w: 780, h: 560 },
-  { name: 'Neon Strip', x: 1920, y: 860, w: 780, h: 560 },
-  { name: 'Dockside', x: 2760, y: 860, w: 600, h: 560 },
-  { name: 'La Colina', x: 2760, y: 240, w: 600, h: 560 },
+  { name: 'Downtown', x0: 0, y0: 0, x1: 1600, y1: 800, tint: '#e8d9b0' },
+  { name: 'Old Town', x0: 1600, y0: 0, x1: 3200, y1: 800, tint: '#e0c9a8' },
+  { name: 'Marina', x0: 0, y0: 800, x1: 1600, y1: 1600, tint: '#cfe3d8' },
+  { name: 'Harbor', x0: 1600, y0: 800, x1: 3200, y1: 1600, tint: '#d8cdb4' },
+  { name: 'South Beach', x0: 0, y0: 1600, x1: 3200, y1: 2400, tint: '#f2e3b8' },
 ];
-
-export const CAR_TYPES = {
-  sedan: { name: 'Solmar Sedan', color: '#c94f43', roof: '#8f2f27', top: 430, accel: 1.0 },
-  taxi: { name: 'City Taxi', color: '#f2b705', roof: '#d99a00', top: 450, accel: 1.0 },
-  coupe: { name: 'Viento Coupe', color: '#3f7fd0', roof: '#2a5a96', top: 500, accel: 1.12 },
-  truck: { name: 'Hauler Truck', color: '#7a7f87', roof: '#565b63', top: 360, accel: 0.82 },
-  sport: { name: 'Cometa GT', color: '#e8b13c', roof: '#b97f14', top: 610, accel: 1.28 },
-  van: { name: 'Delivery Van', color: '#5aa469', roof: '#3c7a4a', top: 380, accel: 0.88 },
-  police: { name: 'SCPD Interceptor', color: '#20242e', roof: '#f4f6f8', top: 590, accel: 1.18 },
-};
 
 export const PALETTE = {
-  water: '#1d6f8f',
-  waterDeep: '#155a75',
-  sand: '#e8d29a',
-  grass: '#5d9b4a',
-  grassDark: '#4c843d',
-  asphalt: '#33373e',
-  asphaltLight: '#3d424b',
+  grass: '#7fae5a',
+  grassDry: '#a8b25e',
+  sand: '#ecd9a0',
+  sea: '#2f7fa8',
+  seaDeep: '#1f5d84',
+  road: '#3c3f45',
+  roadEdge: '#2c2f34',
   lane: '#e8d44d',
-  sidewalk: '#9aa0a8',
-  building: '#b98a5e',
-  buildingRoof: '#8a6742',
-  panel: 'rgba(12, 16, 24, 0.82)',
-  panelSolid: '#10151f',
-  text: '#f2f4f7',
-  muted: '#aab3c0',
-  gold: '#f2c94c',
-  red: '#e5534b',
-  blue: '#4fc3f7',
-  green: '#58c184',
-  star: '#ffd23e',
-  sky: '#0e1420',
+  sidewalk: '#b9b3a4',
+  curb: '#8f887a',
+  buildingRoof: '#c96f4a',
+  buildingRoof2: '#7d8aa0',
+  buildingRoof3: '#b0a06a',
+  buildingWall: '#8a6f5c',
+  park: '#5d9b4a',
+  plaza: '#c9c2b2',
+  hud: '#101418',
+  hudAccent: '#ffc233',
+  danger: '#ff4d3d',
+  good: '#58d68d',
 };
 
-export const MISSION_REWARDS = [400, 700, 900, 1100, 1300];
-export const TOTAL_REWARD = 4400;
+export const TUNING = {
+  // On foot.
+  walkSpeed: 165,
+  runSpeed: 265,
+  playerRadius: 13,
+  playerHealth: 100,
+  punchDamage: 12,
+  punchRange: 34,
+  punchCooldown: 0.38,
+  // Weapons.
+  pistolDamage: 26,
+  pistolRange: 420,
+  pistolCooldown: 0.28,
+  bulletSpeed: 760,
+  // Cars.
+  carEnterRange: 46,
+  stealHeat: 0.55,
+  hitPedHeat: 0.8,
+  shootHeat: 0.35,
+  killHeat: 1.0,
+  // Wanted: heat 0..5 maps to stars; decays when unseen.
+  heatDecayUnseen: 0.055,
+  heatDecayHidden: 0.16,
+  maxWanted: 5,
+  // Police.
+  copCruiseSpeed: 300,
+  copChaseSpeed: 385,
+  copRamDamage: 9,
+  arrestRange: 30,
+  bustTime: 2.2,
+  // World life.
+  trafficCars: 26,
+  parkedCars: 30,
+  pedestrians: 42,
+  policeCap: 8,
+  // Missions and money.
+  startCash: 120,
+  missionRewardBase: 350,
+  taxiFare: 90,
+  packageReward: 60,
+  packagesTotal: 12,
+  // Camera.
+  camLerp: 6.5,
+};
 
-// Roads run on a 300 px grid; the helpers below are the single source of
-// truth for where cars may drive and where the beach and docks sit.
-export const ROAD_STEP = 300;
-export const ROAD_HALF = 34;
-export const BEACH_X = 240;
-export const HIDEOUT = { x: 3180, y: 600, r: 90, name: 'Juno\u2019s Garage' };
-export const PIER = { x: 330, y: 2050, r: 80, name: 'Old Pier' };
-export const BANK = { x: 2280, y: 1140, r: 90, name: 'Solmar National Bank' };
-
-export const STREET_NAMES = [
-  'Palmera Ave', 'Coral Blvd', 'Marina Way', 'Sunset Row',
-  'Cactus St', 'Harbor Rd', 'Neon Ave', 'Colina Dr',
+export const CAR_COLORS = [
+  '#d94f3d', '#3d7bd9', '#e8b73a', '#4fb07a', '#8a5fc0',
+  '#e8e8e8', '#2b2f36', '#d97b3d', '#39b8b0', '#c0c8d0',
 ];
 
-export const CONTROLS = [
-  'WASD / arrows — walk & drive',
-  'Mouse — aim, click — shoot',
-  'E — get in / out of a car',
-  'Shift — run / handbrake',
-  'H — horn, M — next mission',
-  'P / Esc — pause, N — mute',
-  'R — restore save, Q — title',
+export const PED_COLORS = [
+  '#e84f7a', '#4f9be8', '#e8a13d', '#7ac74f', '#a06fd8',
+  '#e8e8e8', '#5a6b7a', '#d97b9b', '#3dc0a8', '#b8a13d',
+];
+
+export const HELP_LINES = [
+  'WASD / Arrows — walk or drive',
+  'Shift — run / handbrake in a car',
+  'E — steal / enter / exit a car',
+  'Mouse aim, Click — shoot pistol',
+  'Space — punch',
+  'H — horn    M — mute    P — pause',
+  'Enter — start mission / continue',
 ];

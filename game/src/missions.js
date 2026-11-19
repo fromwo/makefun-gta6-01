@@ -1,233 +1,280 @@
-// The story: five jobs for Juno and Marco across Costa Solmar, $4,400 in
-// all. Each mission is a small state machine — go somewhere, collect
-// something, survive the heat, escape — and the HUD always shows the
-// current objective and its marker.
-import { BANK, HIDEOUT, MISSION_REWARDS, PIER } from './config.js';
-import { dist2 } from './random.js';
-import { addWanted, playerPos } from './player.js';
-import { clearPolice } from './police.js';
+// Solmar Heat — the story: six jobs for the fixer Mara Voss, plus a taxi
+// side hustle and twelve hidden sun-packages scattered around the city.
+// Each mission is a list of steps; the runner watches the world and moves
+// the player from one step to the next, paying out when the list is done.
+
+import { TUNING } from './config.js';
+import { makeCar } from './vehicles.js';
+import { randomStreetPoint } from './city.js';
+
+export const FIXER = 'Mara Voss';
+export const HERO = 'Rio Kane';
 
 export const MISSIONS = [
   {
-    id: 1, giver: 'Juno', title: 'First Wheels',
-    brief: 'Juno needs wheels. Borrow any car and bring it to her garage.',
-    reward: MISSION_REWARDS[0],
-    stages: [
-      { type: 'steal', text: 'Get in any car (E)' },
-      { type: 'goto', x: HIDEOUT.x, y: HIDEOUT.y, r: 110, text: 'Drive to Juno\u2019s Garage' },
+    id: 1, title: 'First Errand', reward: 350,
+    brief: 'Mara needs a package moved across town. No questions, no cops.',
+    steps: [
+      { kind: 'goto', text: 'Pick up the package at the Marina', x: 500, y: 1000, r: 60 },
+      { kind: 'goto', text: 'Deliver it to the Downtown tower', x: 1000, y: 300, r: 60 },
     ],
   },
   {
-    id: 2, giver: 'Juno', title: 'Beach Run',
-    brief: 'A package for the Old Pier. Drive it down to the beach, no questions.',
-    reward: MISSION_REWARDS[1],
-    stages: [
-      { type: 'goto', x: PIER.x, y: PIER.y, r: 100, text: 'Deliver the package to the Old Pier' },
+    id: 2, title: 'Hot Wheels', reward: 500,
+    brief: 'A Cometa GT is parked by the plaza. Bring it to the garage, fast.',
+    steps: [
+      { kind: 'goto', text: 'Find the Cometa GT by the plaza', x: 1300, y: 1300, r: 70 },
+      { kind: 'enterCar', text: 'Get in the Cometa GT', x: 1300, y: 1300, r: 90 },
+      { kind: 'gotoTimed', text: 'Drive it to the garage', x: 2500, y: 500, r: 70, time: 75 },
     ],
   },
   {
-    id: 3, giver: 'Marco', title: 'Marco\u2019s Debt',
-    brief: 'Marco stashed three cash drops around the Strip. Pick them all up.',
-    reward: MISSION_REWARDS[2],
-    stages: [
-      { type: 'collect', count: 3, text: 'Collect the cash drops (0/3)' },
+    id: 3, title: 'Tail the Courier', reward: 650,
+    brief: 'A courier is carrying Mara\'s ledger. Stop his car — gently is optional.',
+    steps: [
+      { kind: 'ramCar', text: 'Stop the courier\'s car', x: 2100, y: 900, r: 9999 },
+      { kind: 'goto', text: 'Grab the ledger from the wreck', x: 2100, y: 900, r: 60 },
     ],
   },
   {
-    id: 4, giver: 'Marco', title: 'Heat Wave',
-    brief: 'The SCPD is all over the Strip. Make noise, hit 3 stars, then lose them.',
-    reward: MISSION_REWARDS[3],
-    stages: [
-      { type: 'wanted', level: 3, text: 'Raise your wanted level to 3 stars' },
-      { type: 'escape', x: HIDEOUT.x, y: HIDEOUT.y, r: 110, text: 'Lose the heat — reach Juno\u2019s Garage' },
+    id: 4, title: 'Lose the Heat', reward: 450,
+    brief: 'The cops saw too much. Break line of sight and let the heat die down.',
+    steps: [
+      { kind: 'escape', text: 'Lose the police — stay out of sight', x: 0, y: 0, r: 0, time: 120 },
     ],
   },
   {
-    id: 5, giver: 'Juno', title: 'Solmar Heist',
-    brief: 'One last job: hit the bank, grab the cash, and vanish into the garage.',
-    reward: MISSION_REWARDS[4],
-    stages: [
-      { type: 'goto', x: BANK.x, y: BANK.y, r: 110, text: 'Reach Solmar National Bank' },
-      { type: 'grab', text: 'Grab the cash — the alarm is ringing!' },
-      { type: 'escape', x: HIDEOUT.x, y: HIDEOUT.y, r: 110, text: 'Escape to Juno\u2019s Garage with the cash' },
+    id: 5, title: 'Harbor Standoff', reward: 800,
+    brief: 'Rivals are holding the harbor docks. Clear them out and take the crate.',
+    steps: [
+      { kind: 'goto', text: 'Reach the harbor docks', x: 2700, y: 1300, r: 80 },
+      { kind: 'defeat', text: 'Clear out the rivals', x: 2700, y: 1300, r: 200, count: 5 },
+      { kind: 'goto', text: 'Collect the crate', x: 2700, y: 1300, r: 60 },
+    ],
+  },
+  {
+    id: 6, title: 'The Sunset Job', reward: 1500,
+    brief: 'One last score: the Harbor bank, then vanish down the beach road.',
+    steps: [
+      { kind: 'goto', text: 'Reach the Harbor bank', x: 2300, y: 1100, r: 70 },
+      { kind: 'gotoTimed', text: 'Grab the cash and run — 60 seconds', x: 2300, y: 1100, r: 70, time: 60 },
+      { kind: 'escape', text: 'Escape to the South Beach safehouse', x: 1600, y: 2150, r: 90, time: 150 },
     ],
   },
 ];
 
-export function createMissions() {
-  return {
-    index: 0,
-    stage: 0,
-    timer: 0,
-    collected: 0,
-    started: false,
-    done: false,
-    drops: [],
-    message: '',
-  };
-}
-
-export function currentMission(missions) {
-  if (missions.done || missions.index >= MISSIONS.length) return null;
-  return MISSIONS[missions.index];
-}
-
-export function currentStage(missions) {
-  const m = currentMission(missions);
-  if (!m) return null;
-  return m.stages[missions.stage] || null;
-}
-
-export function objectiveText(game) {
-  const ms = game.missions;
-  const m = currentMission(ms);
-  if (!m) return 'All jobs done — Costa Solmar is yours.';
-  const stage = currentStage(ms);
-  if (!stage) return m.title;
-  if (stage.type === 'collect') return `Collect the cash drops (${ms.collected}/3)`;
-  return stage.text;
-}
-
-export function objectiveTarget(game) {
-  const ms = game.missions;
-  const stage = currentStage(ms);
-  if (!stage) return null;
-  if (stage.type === 'collect') {
-    for (const d of ms.drops) if (!d.taken) return { x: d.x, y: d.y };
-    return null;
+export class MissionRunner {
+  constructor(city, rng) {
+    this.city = city;
+    this.rng = rng;
+    this.index = 0; // next mission to offer (0-based into MISSIONS)
+    this.active = null; // {def, step, timer, targetCar, rivals, defeated}
+    this.completed = 0;
+    this.packages = [];
+    this.packagesFound = 0;
+    this.taxi = null; // {fare, dest, timer}
+    this.taxiDone = 0;
   }
-  if (stage.x !== undefined) return { x: stage.x, y: stage.y };
-  return null;
-}
 
-// Start (or restart) the current mission: place its collect drops, reset
-// its timer, and announce the brief.
-export function startMission(game) {
-  const ms = game.missions;
-  const m = currentMission(ms);
-  if (!m) return;
-  ms.stage = 0;
-  ms.timer = 0;
-  ms.collected = 0;
-  ms.drops = [];
-  ms.started = true;
-  if (m.id === 3) {
-    const spots = [
-      { x: 2100, y: 1000 }, { x: 2400, y: 1500 }, { x: 1950, y: 1950 },
-    ];
-    for (const s of spots) {
-      const drop = { x: s.x, y: s.y, amount: 0, kind: 'drop', taken: false };
-      ms.drops.push(drop);
-      game.pickups.push(drop);
+  reset() {
+    this.index = 0;
+    this.active = null;
+    this.completed = 0;
+    this.packagesFound = 0;
+    this.taxi = null;
+    this.taxiDone = 0;
+    this._scatterPackages();
+  }
+
+  _scatterPackages() {
+    this.packages = [];
+    for (let i = 0; i < TUNING.packagesTotal; i += 1) {
+      const spot = randomStreetPoint(this.rng, this.city);
+      this.packages.push({ x: spot.x, y: spot.y, taken: false, bob: this.rng.range(0, 6) });
     }
   }
-  game.addMessage(`${m.giver}: ${m.brief}`, '#f2c94c');
-  game.audio.click();
-}
 
-function advanceStage(game) {
-  const ms = game.missions;
-  ms.stage += 1;
-  ms.timer = 0;
-  const m = currentMission(ms);
-  if (!m) return;
-  const stage = m.stages[ms.stage];
-  if (stage) game.addMessage(stage.text, '#aab3c0');
-}
-
-function completeMission(game) {
-  const ms = game.missions;
-  const m = currentMission(ms);
-  if (!m) return;
-  game.player.money += m.reward;
-  game.stats.earned += m.reward;
-  game.addMessage(`Job done: ${m.title} — +$${m.reward}`, '#58c184');
-  game.audio.missionDone();
-  ms.index += 1;
-  ms.stage = 0;
-  ms.timer = 0;
-  ms.collected = 0;
-  ms.drops = [];
-  if (ms.index >= MISSIONS.length) {
-    ms.done = true;
-    game.events.complete = true;
-    game.addMessage('All five jobs done. Costa Solmar is yours!', '#58c184');
-  } else {
-    startMission(game);
+  currentDef() {
+    return MISSIONS[this.index] || null;
   }
-  game.saveSoon = true;
-}
 
-// One fixed step of the mission state machine. `crime` is set by the
-// caller when the player just stole a car.
-export function updateMissions(game, dt) {
-  const ms = game.missions;
-  if (ms.done || !ms.started) return;
-  const m = currentMission(ms);
-  if (!m) return;
-  const stage = currentStage(ms);
-  if (!stage) { completeMission(game); return; }
-  const pos = playerPos(game);
-  ms.timer += dt;
-
-  if (stage.type === 'steal') {
-    if (game.player.inCar) advanceStage(game);
-    return;
+  startNext(ctx) {
+    const def = this.currentDef();
+    if (!def) return false;
+    this.active = { def, step: 0, timer: 0, targetCar: null, rivals: [], defeated: 0 };
+    this._enterStep(ctx);
+    ctx.onEvent('missionStart', { title: def.title, brief: def.brief });
+    return true;
   }
-  if (stage.type === 'goto' || stage.type === 'escape') {
-    if (dist2(pos.x, pos.y, stage.x, stage.y) < stage.r * stage.r) {
-      if (stage.type === 'escape' && game.player.wanted > 0) {
-        game.player.wanted = 0;
-        clearPolice(game);
-        game.addMessage('You slipped away. Heat is off.', '#58c184');
-      }
-      if (ms.stage + 1 >= m.stages.length) completeMission(game);
-      else advanceStage(game);
+
+  _enterStep(ctx) {
+    const step = this.active.def.steps[this.active.step];
+    if (!step) return;
+    this.active.timer = step.time || 0;
+    if (this.active.def.id === 2 && this.active.step === 0) {
+      // Park the Cometa GT by the plaza so the job has a real car to steal.
+      const gt = makeCar('sport', step.x, step.y, Math.PI / 2, { color: '#c22a5e' });
+      gt.parked = true;
+      ctx.cars.push(gt);
+      this.active.gtCar = gt;
     }
-    return;
-  }
-  if (stage.type === 'collect') {
-    // Walking or driving over a drop pockets it.
-    for (const d of ms.drops) {
-      if (!d.taken && dist2(pos.x, pos.y, d.x, d.y) < 46 * 46) {
-        d.taken = true;
-        game.audio.pickup();
-        game.addMessage('Cash drop collected.', '#58c184');
+    if (step.kind === 'ramCar') {
+      const car = makeCar('coupe', step.x, step.y, 0, { color: '#39b8b0', hp: 120 });
+      car.traffic = true;
+      car.fleeing = true;
+      this.active.targetCar = car;
+      ctx.cars.push(car);
+    }
+    if (step.kind === 'defeat') {
+      this.active.rivals = [];
+      for (let i = 0; i < step.count; i += 1) {
+        const rival = {
+          x: step.x + this.rng.range(-120, 120),
+          y: step.y + this.rng.range(-120, 120),
+          hp: 50, angle: 0, shootTimer: this.rng.range(0.5, 1.5),
+          color: '#c22a5e', rival: true, down: false,
+        };
+        this.active.rivals.push(rival);
       }
     }
-    let got = 0;
-    for (const d of ms.drops) if (d.taken) got += 1;
-    ms.collected = got;
-    if (got >= stage.count) {
-      if (ms.stage + 1 >= m.stages.length) completeMission(game);
-      else advanceStage(game);
+    if (step.kind === 'escape' && this.active.def.id === 4) {
+      ctx.addHeat(2.6);
     }
-    return;
-  }
-  if (stage.type === 'wanted') {
-    if (game.player.wanted >= stage.level) {
-      if (ms.stage + 1 >= m.stages.length) completeMission(game);
-      else advanceStage(game);
-    }
-    return;
-  }
-  if (stage.type === 'grab') {
-    if (ms.timer > 1.2) {
-      game.player.money += 250;
-      addWanted(game, 3);
-      game.addMessage('Alarm! Grabbed $250 — now run!', '#e5534b');
-      if (ms.stage + 1 >= m.stages.length) completeMission(game);
-      else advanceStage(game);
+    if (step.kind === 'escape' && this.active.def.id === 6) {
+      ctx.addHeat(3.4);
     }
   }
-}
 
-// M: start the next job early when the current one is already done, or
-// repeat the current brief when it is still running.
-export function nextMission(game) {
-  const ms = game.missions;
-  if (ms.done) { game.addMessage('All jobs done — free roam!', '#58c184'); return; }
-  if (!ms.started) { startMission(game); return; }
-  const m = currentMission(ms);
-  if (m) game.addMessage(`${m.giver}: ${m.brief}`, '#f2c94c');
+  objectiveText() {
+    if (!this.active) {
+      const def = this.currentDef();
+      return def ? `Next job: ${def.title} — press Enter to start` : 'All jobs done. Solmar is yours.';
+    }
+    const step = this.active.def.steps[this.active.step];
+    let text = `${this.active.def.title}: ${step.text}`;
+    if (step.kind === 'defeat') {
+      text += ` (${this.active.defeated}/${step.count})`;
+    }
+    if (step.time) text += ` — ${Math.ceil(this.active.timer)}s`;
+    return text;
+  }
+
+  waypoint() {
+    if (!this.active) return null;
+    const step = this.active.def.steps[this.active.step];
+    if (step.kind === 'ramCar' && this.active.targetCar) {
+      return { x: this.active.targetCar.x, y: this.active.targetCar.y };
+    }
+    if (step.kind === 'escape') {
+      return this.active.def.id === 6 ? { x: 1600, y: 2150 } : null;
+    }
+    if (this.active.stepTarget) return this.active.stepTarget;
+    return { x: step.x, y: step.y };
+  }
+
+  update(dt, ctx) {
+    const { player } = ctx;
+    // Sun-packages: walk or drive over one to collect it.
+    for (const pack of this.packages) {
+      if (pack.taken) continue;
+      pack.bob += dt;
+      if (Math.hypot(player.x - pack.x, player.y - pack.y) < 34) {
+        pack.taken = true;
+        this.packagesFound += 1;
+        ctx.onEvent('package', { cash: TUNING.packageReward });
+      }
+    }
+    // Taxi: pick up a fare with T near a pedestrian while driving.
+    if (this.taxi) {
+      this.taxi.timer -= dt;
+      const dest = this.taxi.dest;
+      if (Math.hypot(player.x - dest.x, player.y - dest.y) < 70) {
+        ctx.onEvent('taxiDone', { cash: TUNING.taxiFare + Math.round(this.taxi.timer) });
+        this.taxiDone += 1;
+        this.taxi = null;
+      } else if (this.taxi.timer <= 0) {
+        ctx.onEvent('taxiFail', {});
+        this.taxi = null;
+      }
+    }
+    if (!this.active) return;
+    const step = this.active.def.steps[this.active.step];
+    if (step.time) {
+      this.active.timer -= dt;
+      if (this.active.timer <= 0 && step.kind !== 'escape') {
+        this._fail(ctx, 'Out of time.');
+        return;
+      }
+      if (step.kind === 'escape' && this.active.timer <= 0) {
+        this._fail(ctx, 'The cops closed in.');
+        return;
+      }
+    }
+    switch (step.kind) {
+      case 'goto':
+      case 'gotoTimed': {
+        const target = this.active.stepTarget || step;
+        if (Math.hypot(player.x - target.x, player.y - target.y) < step.r) this._advance(ctx);
+        break;
+      }
+      case 'enterCar': {
+        if (!player.onFoot && player.car && player.car.model === 'sport') this._advance(ctx);
+        break;
+      }
+      case 'ramCar': {
+        const car = this.active.targetCar;
+        if (car && car.hp <= 0) {
+          // The ledger lies where the wreck stopped; remember it per-run
+          // instead of rewriting the shared mission table.
+          this._advance(ctx);
+          if (this.active) this.active.stepTarget = { x: car.x, y: car.y };
+        }
+        break;
+      }
+      case 'defeat': {
+        if (this.active.defeated >= step.count) this._advance(ctx);
+        break;
+      }
+      case 'escape': {
+        const atSafehouse = this.active.def.id === 6
+          && Math.hypot(player.x - 1600, player.y - 2150) < 90;
+        if (ctx.heat < 0.5 && (this.active.def.id === 4 || atSafehouse)) this._advance(ctx);
+        break;
+      }
+      default: break;
+    }
+  }
+
+  /** A rival went down; called by the main loop when a bullet lands. */
+  rivalDown(rival) {
+    if (!this.active) return;
+    this.active.defeated += 1;
+  }
+
+  startTaxi(ctx) {
+    if (this.taxi || !ctx.player.car) return false;
+    const dest = randomStreetPoint(this.rng, this.city);
+    this.taxi = { dest, timer: 90 };
+    ctx.onEvent('taxiStart', { dest });
+    return true;
+  }
+
+  _advance(ctx) {
+    this.active.step += 1;
+    if (this.active.step >= this.active.def.steps.length) {
+      const reward = this.active.def.reward;
+      ctx.onEvent('missionDone', { title: this.active.def.title, cash: reward });
+      this.completed += 1;
+      this.index += 1;
+      this.active = null;
+      return;
+    }
+    this._enterStep(ctx);
+    ctx.onEvent('missionStep', { text: this.objectiveText() });
+  }
+
+  _fail(ctx, reason) {
+    ctx.onEvent('missionFail', { title: this.active.def.title, reason });
+    this.active = null;
+  }
 }

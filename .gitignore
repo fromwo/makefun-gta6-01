@@ -1,25 +1,17 @@
-# Dependencies and build output
-node_modules/
+# Build output and local tooling
 out/
 dist/
-.output/
-
-# Local tooling and logs
+node_modules/
 *.log
 *.tmp
+
+# OS and editor clutter
 .DS_Store
 Thumbs.db
-
-# Editor and OS clutter
 .vscode/
 .idea/
 *.swp
 *~
 
-# Local test and screenshot scratch (the shipped shots live in screenshots/)
-/tmp/
-coverage/
-
-# Keep the shipped screenshots and the save-free game tracked; only the
-# scratch above stays out of the repository.
+# Keep the shipped screenshots tracked; only scratch stays out.
 !screenshots/
