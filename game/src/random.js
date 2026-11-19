@@ -1,6 +1,8 @@
-// Solmar Heat — random.js
-// Deterministic seeded random numbers (mulberry32) so a fixed seed
-// always builds the same city, traffic and pedestrians.
+// Solmar Heat — random.js (r8)
+// Seeded randomness (mulberry32 + FNV-1a string hashing) so one seed
+// always builds the same city, the same parked cars, the same traffic
+// and the same pedestrians. Nothing in the game uses Math.random for
+// world layout, which is what makes the screenshots reproducible.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -21,6 +23,7 @@ export function hashString(str) {
   return h >>> 0;
 }
 
+// Small helper wrapper: int / float / pick / chance on one stream.
 export function makeRng(seed) {
   const next = mulberry32(typeof seed === 'string' ? hashString(seed) : seed);
   return {

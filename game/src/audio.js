@@ -1,6 +1,7 @@
-// Solmar Heat — audio.js
-// All sound is synthesized with WebAudio: no audio files, no network.
-// Engine hum, gunshots, siren, pickup chime, crash thud and UI blips.
+// Solmar Heat — audio.js (r8)
+// Every sound is synthesized live with WebAudio: no audio files, no
+// network, no downloads. Engine hum, gunfire, sirens, pickup chimes,
+// crash thuds and mission jingles are all oscillators and noise.
 export function createAudio() {
   let ctx = null;
   let muted = false;
@@ -57,20 +58,54 @@ export function createAudio() {
     src.start();
   }
 
+  function arpeggio(notes, stepMs, dur, type, vol) {
+    notes.forEach((f, i) => setTimeout(() => tone(f, dur, type, vol), i * stepMs));
+  }
+
   return {
-    unlock() { ensure(); },
-    toggleMute() { muted = !muted; return muted; },
-    isMuted() { return muted; },
-    blip() { tone(660, 0.08, 'sine', 0.1); },
-    pickup() { tone(523, 0.1, 'sine', 0.14); setTimeout(() => tone(784, 0.14, 'sine', 0.14), 90); },
-    cash() { tone(880, 0.09, 'triangle', 0.14); setTimeout(() => tone(1174, 0.16, 'triangle', 0.14), 80); },
-    shoot() { noise(0.12, 0.28, 1800); },
-    crash() { noise(0.25, 0.3, 500); tone(70, 0.2, 'sine', 0.2, 40); },
-    sirenBlip() { tone(950, 0.18, 'sine', 0.07, 650); },
-    missionStart() { tone(392, 0.12, 'triangle', 0.14); setTimeout(() => tone(523, 0.12, 'triangle', 0.14), 110); setTimeout(() => tone(659, 0.2, 'triangle', 0.14), 220); },
-    missionDone() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'triangle', 0.15), i * 110)); },
-    busted() { tone(220, 0.5, 'sawtooth', 0.12, 110); },
-    engineStart() { tone(90, 0.3, 'sawtooth', 0.1, 160); },
+    unlock() {
+      ensure();
+    },
+    toggleMute() {
+      muted = !muted;
+      return muted;
+    },
+    isMuted() {
+      return muted;
+    },
+    blip() {
+      tone(660, 0.08, 'sine', 0.1);
+    },
+    pickup() {
+      tone(523, 0.1, 'sine', 0.14);
+      setTimeout(() => tone(784, 0.14, 'sine', 0.14), 90);
+    },
+    cash() {
+      tone(880, 0.09, 'triangle', 0.14);
+      setTimeout(() => tone(1174, 0.16, 'triangle', 0.14), 80);
+    },
+    shoot() {
+      noise(0.12, 0.28, 1800);
+    },
+    crash() {
+      noise(0.25, 0.3, 500);
+      tone(70, 0.2, 'sine', 0.2, 40);
+    },
+    sirenBlip() {
+      tone(950, 0.18, 'sine', 0.07, 650);
+    },
+    missionStart() {
+      arpeggio([392, 523, 659], 110, 0.12, 'triangle', 0.14);
+    },
+    missionDone() {
+      arpeggio([523, 659, 784, 1046], 110, 0.18, 'triangle', 0.15);
+    },
+    busted() {
+      tone(220, 0.5, 'sawtooth', 0.12, 110);
+    },
+    engineStart() {
+      tone(90, 0.3, 'sawtooth', 0.1, 160);
+    },
     setEngine(speed01, on) {
       const c = ensure();
       if (!c) return;
@@ -90,7 +125,10 @@ export function createAudio() {
         engineOsc.connect(f).connect(engineGain).connect(c.destination);
         engineOsc.start();
       }
-      if (muted) { engineGain.gain.setTargetAtTime(0, c.currentTime, 0.05); return; }
+      if (muted) {
+        engineGain.gain.setTargetAtTime(0, c.currentTime, 0.05);
+        return;
+      }
       engineOsc.frequency.setTargetAtTime(60 + speed01 * 160, c.currentTime, 0.08);
       engineGain.gain.setTargetAtTime(0.02 + speed01 * 0.05, c.currentTime, 0.08);
     },

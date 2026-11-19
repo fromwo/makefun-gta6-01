@@ -1,12 +1,17 @@
-// Solmar Heat — player.js
-// The player on foot: movement, collision, entering/stolen cars,
-// health, money, wanted stars, and shooting toward the mouse.
+// Solmar Heat — player.js (r8)
+// The player on foot: walking and running, building collision,
+// aiming and shooting toward the mouse, switching weapons, and the
+// wanted level (heat) that drives the police response. Entering a
+// car is handled in main.js; the car itself lives in vehicles.js.
 import { CONFIG, WEAPONS } from './config.js';
 import { collidesBuilding, clampToWorld } from './city.js';
 
 export function createPlayer(city) {
   return {
-    x: 700, y: 1100, angle: -Math.PI / 2, speed: 0,
+    x: 700,
+    y: 1100,
+    angle: -Math.PI / 2,
+    speed: 0,
     health: CONFIG.startHealth,
     money: CONFIG.startMoney,
     wanted: 0,
@@ -22,24 +27,28 @@ export function createPlayer(city) {
   };
 }
 
+// Heat is a 0-125+ pool; stars are derived from it so crimes stack
+// and the level falls back slowly when the player stays clean.
 export function addWanted(player, amount) {
   player.wantedHeat += amount;
-  const stars = Math.min(CONFIG.maxWanted, Math.floor(player.wantedHeat / 25) + (player.wantedHeat >= 10 ? 1 : 0));
+  const stars = Math.min(
+    CONFIG.maxWanted,
+    Math.floor(player.wantedHeat / 25) + (player.wantedHeat >= 10 ? 1 : 0),
+  );
   player.wanted = Math.max(player.wanted, stars);
 }
 
 export function decayWanted(player, dt) {
-  if (player.wanted > 0) {
-    player.wantedHeat = Math.max(0, player.wantedHeat - dt * 1.2);
-    if (player.wantedHeat <= 0) player.wanted = 0;
-    else player.wanted = Math.min(CONFIG.maxWanted, Math.max(1, Math.ceil(player.wantedHeat / 25)));
-  }
+  if (player.wanted <= 0) return;
+  player.wantedHeat = Math.max(0, player.wantedHeat - dt * 1.2);
+  if (player.wantedHeat <= 0) player.wanted = 0;
+  else player.wanted = Math.min(CONFIG.maxWanted, Math.max(1, Math.ceil(player.wantedHeat / 25)));
 }
 
 export function updatePlayerOnFoot(player, city, input, dt, audio) {
   const axis = input.axis();
-  const run = input.down('Shift');
-  const speed = run ? CONFIG.playerRunSpeed : CONFIG.playerWalkSpeed;
+  const running = input.down('Shift');
+  const speed = running ? CONFIG.playerRunSpeed : CONFIG.playerWalkSpeed;
   const len = Math.hypot(axis.x, axis.y);
   player.moving = len > 0;
   if (len > 0) {
@@ -48,11 +57,12 @@ export function updatePlayerOnFoot(player, city, input, dt, audio) {
     if (!collidesBuilding(city, nx, player.y, 14)) player.x = nx;
     if (!collidesBuilding(city, player.x, ny, 14)) player.y = ny;
     const c = clampToWorld(player.x, player.y, 20);
-    player.x = c.x; player.y = c.y;
+    player.x = c.x;
+    player.y = c.y;
     player.angle = Math.atan2(axis.y, axis.x);
     player.walkPhase += dt * 10;
   }
-  // Aim toward the mouse when firing.
+  // While the mouse is held, face the cursor so shots go where aimed.
   if (input.mouse.down || input.mouse.clicked) {
     player.angle = Math.atan2(input.mouse.worldY - player.y, input.mouse.worldX - player.x);
   }
@@ -82,8 +92,13 @@ export function nearestCar(player, cars, maxDist) {
   let bestD = maxDist * maxDist;
   for (const car of cars) {
     if (car.wrecked) continue;
-    const d = (car.x - player.x) * (car.x - player.x) + (car.y - player.y) * (car.y - player.y);
-    if (d < bestD) { bestD = d; best = car; }
+    const dx = car.x - player.x;
+    const dy = car.y - player.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = car;
+    }
   }
   return best;
 }

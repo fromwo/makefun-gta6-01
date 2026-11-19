@@ -1,6 +1,7 @@
-// Solmar Heat — traffic.js
-// Ambient life: traffic cars cruising the roads and pedestrians
-// strolling the sidewalks, all placed deterministically from the seed.
+// Solmar Heat — traffic.js (r8)
+// Ambient life: traffic cars cruising the road grid and pedestrians
+// strolling the sidewalks. All of it is placed from the seed, so the
+// streets look the same every run until the player disturbs them.
 import { makeRng } from './random.js';
 import { nearestRoadPoint, pointOnRoad } from './city.js';
 import { makeCar } from './vehicles.js';
@@ -17,15 +18,16 @@ export function spawnTraffic(city, seed, carCount, pedCount) {
     const y = rng.float(200, city.size - 200);
     const road = nearestRoadPoint(city, x, y);
     if (!road) continue;
-    const angle = road.vertical ? (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2) : (rng.chance(0.5) ? 0 : Math.PI);
+    const angle = road.vertical
+      ? (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2)
+      : (rng.chance(0.5) ? 0 : Math.PI);
     cars.push(makeCar(road.x, road.y, angle, rng.int(0, 5), { traffic: true, driver: true }));
   }
   const peds = [];
   for (let i = 0; i < pedCount; i++) {
-    const x = rng.float(200, city.size - 200);
-    const y = rng.float(200, city.size - 200);
     peds.push({
-      x, y,
+      x: rng.float(200, city.size - 200),
+      y: rng.float(200, city.size - 200),
       angle: rng.float(0, Math.PI * 2),
       speed: rng.float(28, 62),
       color: rng.pick(PED_COLORS),
@@ -36,20 +38,27 @@ export function spawnTraffic(city, seed, carCount, pedCount) {
   return { cars, peds };
 }
 
+function blockedByBuilding(city, x, y, pad) {
+  for (const b of city.buildings) {
+    if (x > b.x - pad && x < b.x + b.w + pad && y > b.y - pad && y < b.y + b.h + pad) return true;
+  }
+  return false;
+}
+
 export function updatePedestrians(peds, city, dt, rng) {
   for (const p of peds) {
-    if (p.pause > 0) { p.pause -= dt; continue; }
+    if (p.pause > 0) {
+      p.pause -= dt;
+      continue;
+    }
     const nx = p.x + Math.cos(p.angle) * p.speed * dt;
     const ny = p.y + Math.sin(p.angle) * p.speed * dt;
-    let blocked = false;
-    for (const b of city.buildings) {
-      if (nx > b.x - 8 && nx < b.x + b.w + 8 && ny > b.y - 8 && ny < b.y + b.h + 8) { blocked = true; break; }
-    }
-    if (blocked || nx < 30 || ny < 30 || nx > city.size - 30 || ny > city.size - 30) {
+    if (blockedByBuilding(city, nx, ny, 8) || nx < 30 || ny < 30 || nx > city.size - 30 || ny > city.size - 30) {
       p.angle += Math.PI / 2 + (rng ? rng.float(-0.4, 0.4) : 0);
       if (rng && rng.chance(0.2)) p.pause = rng.float(0.5, 2.5);
     } else {
-      p.x = nx; p.y = ny;
+      p.x = nx;
+      p.y = ny;
     }
     p.phase += dt * 6;
   }
@@ -60,19 +69,19 @@ export function updateTrafficCars(cars, city, dt, playerCar) {
     if (car.wrecked) continue;
     const aheadX = car.x + Math.cos(car.angle) * 70;
     const aheadY = car.y + Math.sin(car.angle) * 70;
-    let blocked = false;
-    for (const b of city.buildings) {
-      if (aheadX > b.x - 18 && aheadX < b.x + b.w + 18 && aheadY > b.y - 18 && aheadY < b.y + b.h + 18) { blocked = true; break; }
+    if (blockedByBuilding(city, aheadX, aheadY, 18)) {
+      car.angle += Math.PI / 2;
+      continue;
     }
-    if (blocked) { car.angle += Math.PI / 2; continue; }
-    // Gentle separation from the player's car.
+    // Nudge away from the player's car instead of piling into it.
     if (playerCar) {
       const dx = car.x - playerCar.x;
       const dy = car.y - playerCar.y;
       const d2 = dx * dx + dy * dy;
       if (d2 < 70 * 70 && d2 > 1) {
-        car.x += (dx / Math.sqrt(d2)) * 40 * dt;
-        car.y += (dy / Math.sqrt(d2)) * 40 * dt;
+        const d = Math.sqrt(d2);
+        car.x += (dx / d) * 40 * dt;
+        car.y += (dy / d) * 40 * dt;
       }
     }
     car.speed = 140;

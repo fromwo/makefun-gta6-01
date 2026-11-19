@@ -1,6 +1,8 @@
-// Solmar Heat — config.js
-// Central tuning for the original open-world game "Solmar Heat".
-// City: Solmar, a sunny seaside city invented for this game.
+// Solmar Heat — config.js (r8)
+// Every tunable number for the game lives here: the city grid, the
+// player and car handling, the wanted ladder, the three story jobs,
+// the car roster and the weapons. Solmar itself is an invented city;
+// nothing here names a real place, person or brand.
 export const CONFIG = {
   title: 'SOLMAR HEAT',
   cityName: 'Solmar',
@@ -9,15 +11,15 @@ export const CONFIG = {
   tile: 120,
   roadWidth: 56,
   blockSize: 240,
-  playerWalkSpeed: 230,
-  playerRunSpeed: 340,
-  carAccel: 520,
-  carBrake: 900,
-  carMaxSpeed: 620,
-  carReverseMax: 180,
-  carTurn: 2.6,
+  playerWalkSpeed: 235,
+  playerRunSpeed: 345,
+  carAccel: 540,
+  carBrake: 920,
+  carMaxSpeed: 640,
+  carReverseMax: 185,
+  carTurn: 2.7,
   maxWanted: 5,
-  startMoney: 120,
+  startMoney: 150,
   startHealth: 100,
   colors: {
     grass: '#5da24a',
@@ -38,6 +40,7 @@ export const CONFIG = {
   },
 };
 
+// Nine named districts laid over the same 3x3 grid as the roads.
 export const DISTRICTS = [
   { name: 'Marina Bay', x: 300, y: 300, w: 1200, h: 900 },
   { name: 'Old Town', x: 1600, y: 300, w: 1100, h: 900 },
@@ -50,12 +53,14 @@ export const DISTRICTS = [
   { name: 'Airport Road', x: 2900, y: 2600, w: 1000, h: 900 },
 ];
 
+// The story arc: a delivery, a timed getaway, then a harbor fight.
+// target = where the job starts, dropoff = where it ends.
 export const MISSION_DEFS = [
   {
     id: 'm1',
     title: 'First Drop',
     giver: 'Rosa Marlin',
-    briefing: 'Pick up the sealed crate at the Marina and deliver it to the Old Town garage. No questions, no shortcuts through the sea.',
+    briefing: 'A sealed crate is waiting at the Marina. Pick it up and bring it to the Old Town garage — no questions, and no shortcuts through the water.',
     target: { x: 700, y: 700 },
     dropoff: { x: 2050, y: 700 },
     reward: 400,
@@ -65,7 +70,7 @@ export const MISSION_DEFS = [
     id: 'm2',
     title: 'Getaway Driver',
     giver: 'Theo Vance',
-    briefing: 'Theo is waiting at Dockside. Pick him up, then lose the heat and reach the Sunset Strip safehouse before the timer runs out.',
+    briefing: 'Theo is hiding out at Dockside. Collect him, shake any police, and reach the Sunset Strip safehouse before the clock runs out.',
     target: { x: 700, y: 1950 },
     dropoff: { x: 2050, y: 1950 },
     reward: 650,
@@ -76,7 +81,7 @@ export const MISSION_DEFS = [
     id: 'm3',
     title: 'Harbor Showdown',
     giver: 'Captain Ilya',
-    briefing: 'Rival crew members are holding the Harbor View pier. Drive there, clear them out on foot, and grab the ledger.',
+    briefing: 'A rival crew is holding the Harbor View pier. Drive down there, clear them out on foot, and take back the ledger.',
     target: { x: 700, y: 3050 },
     dropoff: { x: 700, y: 3050 },
     reward: 900,

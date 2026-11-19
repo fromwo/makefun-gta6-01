@@ -1,6 +1,8 @@
-// Solmar Heat — save.js
-// localStorage save/load: money, health, position, mission progress,
-// completed jobs and wanted level. Versioned so old saves never crash.
+// Solmar Heat — save.js (r8)
+// localStorage save / load: money, health, position, wanted level,
+// mission progress, completed jobs and the selected weapon. The save
+// is versioned, so a save from an older build can never crash a load —
+// it is simply ignored. savedAt is always 0 so saves stay identical.
 const KEY = 'solmar-heat-save-v1';
 
 export function saveGame(state) {
@@ -59,9 +61,15 @@ export function applySave(state, data) {
   state.missions.index = data.missionIndex || 0;
   state.missions.completed = Array.isArray(data.completed) ? data.completed : [];
   state.missions.stage = 'idle';
+  state.camera.x = p.x;
+  state.camera.y = p.y;
   return true;
 }
 
 export function clearSave() {
-  try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+  try {
+    localStorage.removeItem(KEY);
+  } catch (e) {
+    // storage unavailable — nothing to clear
+  }
 }

@@ -1,6 +1,7 @@
-// Solmar Heat — vehicles.js
-// Cars: spawning parked and moving cars, arcade driving physics,
-// stealing (enter a nearby car), damage and wrecks.
+// Solmar Heat — vehicles.js (r8)
+// Cars: how they are built, where parked cars spawn, arcade driving
+// physics (accelerate, brake, steer, crash into buildings, wreck),
+// and the simple straight-line driver used by ambient traffic.
 import { CONFIG, CAR_MODELS } from './config.js';
 import { makeRng } from './random.js';
 import { collidesBuilding, clampToWorld, nearestRoadPoint } from './city.js';
@@ -9,18 +10,20 @@ let carId = 0;
 
 export function makeCar(x, y, angle, modelIndex, opts) {
   const model = CAR_MODELS[modelIndex % CAR_MODELS.length];
+  const o = opts || {};
   return {
     id: ++carId,
     x, y, angle,
     speed: 0,
     model,
-    color: (opts && opts.color) || model.color,
-    police: !!(opts && opts.police),
-    traffic: !!(opts && opts.traffic),
-    parked: !!(opts && opts.parked),
+    color: o.color || model.color,
+    police: !!o.police,
+    traffic: !!o.traffic,
+    parked: !!o.parked,
     wrecked: false,
+    stolen: false,
     health: 100,
-    driver: !!(opts && opts.driver),
+    driver: !!o.driver,
   };
 }
 
@@ -38,7 +41,9 @@ export function spawnParkedCars(city, seed, count) {
     const dy = road.y - y;
     if (dx * dx + dy * dy > 90 * 90) continue;
     if (collidesBuilding(city, road.x, road.y, 30)) continue;
-    const angle = road.vertical ? (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2) : (rng.chance(0.5) ? 0 : Math.PI);
+    const angle = road.vertical
+      ? (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2)
+      : (rng.chance(0.5) ? 0 : Math.PI);
     const ox = road.vertical ? (rng.chance(0.5) ? 14 : -14) : 0;
     const oy = road.vertical ? 0 : (rng.chance(0.5) ? 14 : -14);
     cars.push(makeCar(road.x + ox, road.y + oy, angle, rng.int(0, CAR_MODELS.length - 1), { parked: true }));
@@ -64,12 +69,12 @@ export function updateDrivenCar(car, input, dt, city, audio) {
     if (Math.abs(car.speed) < 30) car.speed = 0;
   }
   car.speed = Math.max(-CONFIG.carReverseMax, Math.min(maxSpeed, car.speed));
-  const steer = axis.x * CONFIG.carTurn * dt * Math.min(1, Math.abs(car.speed) / 120 + 0.15) * (car.speed < 0 ? -1 : 1);
+  const grip = Math.min(1, Math.abs(car.speed) / 120 + 0.15);
+  const steer = axis.x * CONFIG.carTurn * dt * grip * (car.speed < 0 ? -1 : 1);
   car.angle += steer;
   const nx = car.x + Math.cos(car.angle) * car.speed * dt;
   const ny = car.y + Math.sin(car.angle) * car.speed * dt;
-  const hit = collidesBuilding(city, nx, ny, 22);
-  if (hit) {
+  if (collidesBuilding(city, nx, ny, 22)) {
     car.speed *= -0.25;
     car.health -= 6;
     if (audio) audio.crash();
@@ -79,7 +84,8 @@ export function updateDrivenCar(car, input, dt, city, audio) {
     car.y = ny;
   }
   const c = clampToWorld(car.x, car.y, 30);
-  car.x = c.x; car.y = c.y;
+  car.x = c.x;
+  car.y = c.y;
   if (audio) audio.setEngine(Math.abs(car.speed) / maxSpeed, true);
   return car;
 }
@@ -97,5 +103,6 @@ export function updateTrafficCar(car, dt, city, rng) {
   car.y += Math.sin(car.angle) * car.speed * dt;
   const c = clampToWorld(car.x, car.y, 30);
   if (c.x !== car.x || c.y !== car.y) car.angle += Math.PI;
-  car.x = c.x; car.y = c.y;
+  car.x = c.x;
+  car.y = c.y;
 }

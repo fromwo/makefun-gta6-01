@@ -1,15 +1,17 @@
-// Solmar Heat — missions.js
-// Story missions: three jobs from three fixers in Solmar.
-// deliver: reach the pickup, then the dropoff.
-// escort: pick up a person, then reach the safehouse in time.
-// combat: reach the pier, defeat the rival crew, collect the ledger.
+// Solmar Heat — missions.js (r8)
+// The three story jobs from three fixers in Solmar.
+//   deliver — reach the pickup, then carry the goods to the dropoff.
+//   escort  — pick up a person, then reach the safehouse in time.
+//   combat  — reach the pier, defeat the rival crew, take the ledger.
+// Stages: idle (walk to the R marker) -> pickup -> deliver -> done.
+// A failed timed job can be retried with T.
 import { MISSION_DEFS } from './config.js';
 import { makeRng } from './random.js';
 
 export function createMissionState() {
   return {
     index: 0,
-    stage: 'idle', // idle | pickup | deliver | done | failed
+    stage: 'idle',
     timer: 0,
     enemies: [],
     message: 'Drive to the yellow R marker to start your first job.',
@@ -60,14 +62,18 @@ export function spawnMissionEnemies(missions, seed) {
   missions.enemies = list;
 }
 
+function failMission(missions, def) {
+  missions.stage = 'failed';
+  missions.message = 'Too slow — ' + def.title + ' failed. Return to the marker and press T to retry.';
+}
+
 export function updateMissions(missions, state, dt, audio) {
   const def = currentMission(missions);
   if (!def) return;
   if (missions.stage === 'pickup' && missions.timer > 0) {
     missions.timer -= dt;
     if (missions.timer <= 0) {
-      missions.stage = 'failed';
-      missions.message = 'Too slow — ' + def.title + ' failed. Return to the marker to retry.';
+      failMission(missions, def);
       return;
     }
   }
@@ -75,19 +81,19 @@ export function updateMissions(missions, state, dt, audio) {
   const px = p.inCar ? p.inCar.x : p.x;
   const py = p.inCar ? p.inCar.y : p.y;
   if (missions.stage === 'idle') {
-    const d = Math.hypot(px - def.target.x, py - def.target.y);
-    if (d < 90) startMission(missions, audio);
+    if (Math.hypot(px - def.target.x, py - def.target.y) < 90) startMission(missions, audio);
     return;
   }
   if (missions.stage === 'pickup') {
-    const d = Math.hypot(px - def.target.x, py - def.target.y);
-    if (d < 70) {
+    if (Math.hypot(px - def.target.x, py - def.target.y) < 70) {
       if (def.kind === 'combat') {
         spawnMissionEnemies(missions, state.seed);
         missions.message = 'Clear out the rival crew, then grab the ledger!';
       } else {
         missions.stage = 'deliver';
-        missions.message = def.kind === 'escort' ? 'Theo is in! Get to the safehouse!' : 'Crate secured. Deliver it to the marked garage.';
+        missions.message = def.kind === 'escort'
+          ? 'Theo is in! Get to the safehouse!'
+          : 'Crate secured. Deliver it to the marked garage.';
       }
       if (audio) audio.pickup();
     }
@@ -96,13 +102,10 @@ export function updateMissions(missions, state, dt, audio) {
   if (missions.stage === 'deliver') {
     if (def.kind === 'combat') {
       const alive = missions.enemies.filter((e) => e.alive).length;
-      if (alive === 0) {
-        completeMission(missions, state, audio);
-      }
+      if (alive === 0) completeMission(missions, state, audio);
       return;
     }
-    const d = Math.hypot(px - def.dropoff.x, py - def.dropoff.y);
-    if (d < 80) completeMission(missions, state, audio);
+    if (Math.hypot(px - def.dropoff.x, py - def.dropoff.y) < 80) completeMission(missions, state, audio);
   }
 }
 
@@ -115,8 +118,13 @@ export function completeMission(missions, state, audio) {
   missions.stage = 'idle';
   missions.timer = 0;
   const next = currentMission(missions);
-  missions.message = def.title + ' complete! +$' + def.reward + (next ? ' Next job: ' + next.title + ' — head to the R marker.' : ' All jobs done. Solmar is yours.');
-  if (audio) { audio.cash(); audio.missionDone(); }
+  missions.message = def.title + ' complete! +$' + def.reward + (next
+    ? ' Next job: ' + next.title + ' — head to the R marker.'
+    : ' All jobs done. Solmar is yours.');
+  if (audio) {
+    audio.cash();
+    audio.missionDone();
+  }
 }
 
 export function retryMission(missions) {

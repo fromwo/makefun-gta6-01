@@ -1,7 +1,8 @@
-// Solmar Heat — police.js
-// Wanted level and police response: patrol cars spawn at the edge of
-// view and chase the player; on foot, officers close in and can bust
-// the player when they get close while the player is slow or still.
+// Solmar Heat — police.js (r8)
+// The wanted system in action: one patrol car per wanted star (up to
+// four) spawns off-screen and chases the player, ramming their car or
+// running them down on foot. Get close to a cop on foot with two or
+// more stars and you get busted.
 import { CONFIG } from './config.js';
 import { makeCar } from './vehicles.js';
 import { addWanted } from './player.js';
@@ -13,13 +14,17 @@ export function wantedCarCount(wanted) {
 export function spawnPoliceCar(player, index) {
   const angle = (index / 4) * Math.PI * 2 + 0.7;
   const dist = 700;
-  return makeCar(
-    player.x + Math.cos(angle) * dist,
-    player.y + Math.sin(angle) * dist,
-    Math.atan2(player.y - (player.y + Math.sin(angle) * dist), player.x - (player.x + Math.cos(angle) * dist)),
-    1,
-    { police: true, color: CONFIG.colors.police, driver: true },
-  );
+  const sx = player.x + Math.cos(angle) * dist;
+  const sy = player.y + Math.sin(angle) * dist;
+  const face = Math.atan2(player.y - sy, player.x - sx);
+  return makeCar(sx, sy, face, 1, { police: true, color: CONFIG.colors.police, driver: true });
+}
+
+function angleDiff(target, current) {
+  let diff = target - current;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return diff;
 }
 
 export function updatePoliceCars(cops, player, dt, city) {
@@ -31,15 +36,12 @@ export function updatePoliceCars(cops, player, dt, city) {
     const dy = py - cop.y;
     const dist = Math.hypot(dx, dy) || 1;
     const wantAngle = Math.atan2(dy, dx);
-    let diff = wantAngle - cop.angle;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    cop.angle += Math.max(-2.4 * dt, Math.min(2.4 * dt, diff));
-    const speed = 300 + player.wanted * 45;
-    cop.speed = Math.min(speed, 240 + dist * 0.35);
+    const turn = Math.max(-2.4 * dt, Math.min(2.4 * dt, angleDiff(wantAngle, cop.angle)));
+    cop.angle += turn;
+    const topSpeed = 300 + player.wanted * 45;
+    cop.speed = Math.min(topSpeed, 240 + dist * 0.35);
     cop.x += Math.cos(cop.angle) * cop.speed * dt;
     cop.y += Math.sin(cop.angle) * cop.speed * dt;
-    // Ram the player's car.
     if (dist < 55) {
       if (player.inCar) {
         player.inCar.health -= 14 * dt;
@@ -65,8 +67,7 @@ export function checkBusted(state) {
   if (p.wanted < 2) return false;
   for (const cop of state.policeCars) {
     if (cop.wrecked) continue;
-    const d = Math.hypot(cop.x - p.x, cop.y - p.y);
-    if (d < 46) return true;
+    if (Math.hypot(cop.x - p.x, cop.y - p.y) < 46) return true;
   }
   return false;
 }

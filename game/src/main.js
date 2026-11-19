@@ -1,6 +1,8 @@
-// Solmar Heat — main.js
-// Game bootstrap and loop: builds the city, spawns traffic and
-// pedestrians, wires input/audio/save, and runs the update/render loop.
+// Solmar Heat — main.js (r8)
+// Bootstrap and game loop. Builds the city, spawns parked cars, traffic
+// and pedestrians, wires input / audio / save, then runs the update and
+// render loop. Also handles entering and stealing cars, bullets, mission
+// enemies, particles, police and the wasted / busted screens.
 import { CONFIG } from './config.js';
 import { buildCity } from './city.js';
 import { createInput } from './input.js';
@@ -27,12 +29,11 @@ function newState() {
   const player = createPlayer(city);
   const parked = spawnParkedCars(city, seed, 26);
   const ambient = spawnTraffic(city, seed, 14, 46);
-  const cars = parked.concat(ambient.cars);
-  const state = {
+  return {
     seed,
     city,
     player,
-    cars,
+    cars: parked.concat(ambient.cars),
     peds: ambient.peds,
     policeCars: [],
     bullets: [],
@@ -46,7 +47,6 @@ function newState() {
     rng: makeRng(seed + 5),
     toast: '',
   };
-  return state;
 }
 
 let state = newState();
@@ -72,7 +72,15 @@ function burst(x, y, color, n) {
   for (let i = 0; i < n; i++) {
     const a = state.rng.float(0, Math.PI * 2);
     const s = state.rng.float(40, 180);
-    state.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5, maxLife: 0.5, color, size: state.rng.float(2, 5) });
+    state.particles.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      life: 0.5,
+      maxLife: 0.5,
+      color,
+      size: state.rng.float(2, 5),
+    });
   }
 }
 
@@ -84,70 +92,33 @@ function firePlayerBullet() {
   burst(b.x, b.y, '#ffe14d', 4);
 }
 
-function update(dt) {
-  state.time += dt;
+function enterOrExitCar() {
   const p = state.player;
-  if (state.screen !== 'playing') return;
-
-  // Global keys.
-  if (input.consumePressed('p') || input.consumePressed('P')) { state.screen = 'paused'; return; }
-  if (input.consumePressed('m') || input.consumePressed('M')) { audio.toggleMute(); }
-  if (input.consumePressed('s') || input.consumePressed('S')) {
-    if (saveGame(state)) state.missions.message = 'Game saved.';
-  }
-  if (input.consumePressed('t') || input.consumePressed('T')) retryMission(state.missions);
-
-  // Enter / exit car.
-  if (input.consumePressed('e') || input.consumePressed('E')) {
-    if (p.inCar) {
-      const car = p.inCar;
-      p.inCar = null;
-      p.x = car.x + Math.cos(car.angle + Math.PI / 2) * 40;
-      p.y = car.y + Math.sin(car.angle + Math.PI / 2) * 40;
-      audio.setEngine(0, false);
-    } else {
-      const car = nearestCar(p, state.cars, 95);
-      if (car) {
-        p.inCar = car;
-        car.parked = false;
-        car.driver = true;
-        p.x = car.x; p.y = car.y;
-        audio.engineStart();
-        if (!car.stolen) {
-          car.stolen = true;
-          commitCrime(state, 18);
-          state.missions.message = 'You took the ' + car.model.name + '! The police noticed.';
-        }
-      }
-    }
-  }
-
   if (p.inCar) {
     const car = p.inCar;
-    if (car.wrecked) {
-      p.inCar = null;
-      p.x = car.x + 40; p.y = car.y;
-      audio.setEngine(0, false);
-    } else {
-      updateDrivenCar(car, input, dt, state.city, audio);
-      p.x = car.x; p.y = car.y; p.angle = car.angle;
-      if (input.down('f') || input.down('F')) { /* no shooting while driving */ }
-    }
-  } else {
-    updatePlayerOnFoot(p, state.city, input, dt, audio);
-    if ((input.mouse.down || input.mouse.clicked) && p.fireCooldown <= 0) firePlayerBullet();
-    if (input.down('f') || input.down('F')) firePlayerBullet();
+    p.inCar = null;
+    p.x = car.x + Math.cos(car.angle + Math.PI / 2) * 40;
+    p.y = car.y + Math.sin(car.angle + Math.PI / 2) * 40;
+    audio.setEngine(0, false);
+    return;
   }
+  const car = nearestCar(p, state.cars, 95);
+  if (!car) return;
+  p.inCar = car;
+  car.parked = false;
+  car.driver = true;
+  p.x = car.x;
+  p.y = car.y;
+  audio.engineStart();
+  if (!car.stolen) {
+    car.stolen = true;
+    commitCrime(state, 18);
+    state.missions.message = 'You took the ' + car.model.name + '! The police noticed.';
+  }
+}
 
-  // Traffic and pedestrians.
-  updateTrafficCars(state.cars.filter((c) => c.traffic), state.city, dt, p.inCar);
-  updatePedestrians(state.peds, state.city, dt, state.rng);
-
-  // Missions.
-  updateMissions(state.missions, state, dt, audio);
-  state.missionObjective = missionObjective(state.missions);
-
-  // Enemies (mission 3).
+function updateEnemies(dt) {
+  const p = state.player;
   for (const e of state.missions.enemies) {
     if (!e.alive) continue;
     const dx = p.x - e.x;
@@ -165,8 +136,10 @@ function update(dt) {
       audio.shoot();
     }
   }
+}
 
-  // Bullets.
+function updateBullets(dt) {
+  const p = state.player;
   for (const b of state.bullets) {
     b.x += Math.cos(b.angle) * 900 * dt;
     b.y += Math.sin(b.angle) * 900 * dt;
@@ -177,7 +150,10 @@ function update(dt) {
         if (e.alive && Math.hypot(e.x - b.x, e.y - b.y) < 18) {
           e.health -= b.damage;
           burst(b.x, b.y, '#ff5', 5);
-          if (e.health <= 0) { e.alive = false; commitCrime(state, 8); }
+          if (e.health <= 0) {
+            e.alive = false;
+            commitCrime(state, 8);
+          }
           b.life = 0;
         }
       }
@@ -195,8 +171,51 @@ function update(dt) {
     }
   }
   state.bullets = state.bullets.filter((b) => b.life > 0 && b.range > 0);
+}
 
-  // Particles.
+function update(dt) {
+  state.time += dt;
+  const p = state.player;
+  if (state.screen !== 'playing') return;
+
+  if (input.consumePressed('p') || input.consumePressed('P')) {
+    state.screen = 'paused';
+    return;
+  }
+  if (input.consumePressed('m') || input.consumePressed('M')) audio.toggleMute();
+  if (input.consumePressed('s') || input.consumePressed('S')) {
+    if (saveGame(state)) state.missions.message = 'Game saved.';
+  }
+  if (input.consumePressed('t') || input.consumePressed('T')) retryMission(state.missions);
+  if (input.consumePressed('e') || input.consumePressed('E')) enterOrExitCar();
+
+  if (p.inCar) {
+    const car = p.inCar;
+    if (car.wrecked) {
+      p.inCar = null;
+      p.x = car.x + 40;
+      p.y = car.y;
+      audio.setEngine(0, false);
+    } else {
+      updateDrivenCar(car, input, dt, state.city, audio);
+      p.x = car.x;
+      p.y = car.y;
+      p.angle = car.angle;
+    }
+  } else {
+    updatePlayerOnFoot(p, state.city, input, dt, audio);
+    if ((input.mouse.down || input.mouse.clicked) && p.fireCooldown <= 0) firePlayerBullet();
+    if (input.down('f') || input.down('F')) firePlayerBullet();
+  }
+
+  updateTrafficCars(state.cars.filter((c) => c.traffic), state.city, dt, p.inCar);
+  updatePedestrians(state.peds, state.city, dt, state.rng);
+
+  updateMissions(state.missions, state, dt, audio);
+  state.missionObjective = missionObjective(state.missions);
+  updateEnemies(dt);
+  updateBullets(dt);
+
   for (const pt of state.particles) {
     pt.x += pt.vx * dt;
     pt.y += pt.vy * dt;
@@ -204,7 +223,6 @@ function update(dt) {
   }
   state.particles = state.particles.filter((pt) => pt.life > 0);
 
-  // Police.
   decayWanted(p, dt);
   ensurePolice(state, dt);
   updatePoliceCars(state.policeCars, p, dt, state.city);
@@ -219,9 +237,7 @@ function update(dt) {
     state.screen = 'dead';
     audio.setEngine(0, false);
   }
-  if (p.inCar && p.inCar.wrecked) {
-    p.health -= 20;
-  }
+  if (p.inCar && p.inCar.wrecked) p.health -= 20;
 }
 
 function frame(t) {
@@ -231,7 +247,6 @@ function frame(t) {
   if (state.screen === 'title') {
     if (input.consumePressed('Enter')) startGame(false);
     else if (input.consumePressed('n') || input.consumePressed('N')) startGame(false);
-    else if ((input.consumePressed('Enter') || input.keys.has('Enter')) && state.hasSave) startGame(true);
   } else if (state.screen === 'paused') {
     if (input.consumePressed('p') || input.consumePressed('P') || input.consumePressed('Escape')) state.screen = 'playing';
     if (input.consumePressed('s') || input.consumePressed('S')) saveGame(state);
