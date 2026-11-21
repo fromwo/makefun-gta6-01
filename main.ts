@@ -1,81 +1,63 @@
-// Solmar Heat — entrypoint for the make.fun gta6-01 bounty.
+// Solmar Heat — make.fun gta6-01 entry program (round 12).
+//
 // Copies game/ and screenshots/ from this repository into the output
-// directory (MAKEFUN_OUTPUT_DIR, or /output when unset) and writes
-// /output/dossier.json with buildDossier from vendor/makefun-game.ts.
-// Standard library only; the output is byte-for-byte deterministic:
-// files are copied in sorted order and nothing here writes a timestamp,
-// a random value, or any other run-varying byte.
-import { buildDossier } from './vendor/makefun-game.ts';
-import {
-  cpSync, existsSync, mkdirSync, readFileSync, rmSync, readdirSync, statSync, writeFileSync,
-} from 'node:fs';
-import { join, resolve } from 'node:path';
+// directory and writes dossier.json with the kit's buildDossier.
+//
+// The repository root is resolved from this file's own location
+// (import.meta.url), never from process.cwd(): the grader runs
+// `node /bot/main.ts` from a working directory outside the repository,
+// so resolving the game from the current working directory fails with
+// "game/ directory not found" and exit code 1. Resolving from this
+// file's URL works no matter where the process starts.
+import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { buildDossier } from "./vendor/makefun-game.ts";
 
-const DOSSIER_CAPS = {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 256 * 1024 },
-  game_max_files: 993,
-  game_max_bytes: 48 * 1024 * 1024,
-  game_path_max_bytes: 1000,
-};
+const REPO_ROOT = dirname(fileURLToPath(import.meta.url));
+const GAME_DIR = join(REPO_ROOT, "game");
+const SCREENSHOTS_DIR = join(REPO_ROOT, "screenshots");
+const OUTPUT_DIR = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? "/output");
+const DOSSIER_TEXT_MAX_BYTES = 163840;
+const DOSSIER_MAX_BYTES = 1572864;
 
-function copyTreeSorted(srcDir: string, destDir: string): void {
-  mkdirSync(destDir, { recursive: true });
-  const entries = readdirSync(srcDir).sort();
-  for (const name of entries) {
-    const src = join(srcDir, name);
-    const dest = join(destDir, name);
-    const st = statSync(src);
-    if (st.isDirectory()) {
-      copyTreeSorted(src, dest);
-    } else if (st.isFile()) {
-      cpSync(src, dest);
-    }
+async function mustExist(path: string, label: string): Promise<void> {
+  const info = await stat(path).catch(() => null);
+  if (!info) {
+    throw new Error(`${label} not found: ${path}`);
   }
 }
 
-function fail(message: string): never {
-  throw new Error(`Solmar Heat: ${message}`);
+async function main(): Promise<void> {
+  await mustExist(GAME_DIR, "game/ directory");
+  await mustExist(join(GAME_DIR, "index.html"), "game/index.html");
+  await mustExist(SCREENSHOTS_DIR, "screenshots/ directory");
+  await rm(OUTPUT_DIR, { recursive: true, force: true });
+  await mkdir(OUTPUT_DIR, { recursive: true });
+  await cp(GAME_DIR, join(OUTPUT_DIR, "game"), { recursive: true });
+  await cp(SCREENSHOTS_DIR, join(OUTPUT_DIR, "screenshots"), {
+    recursive: true,
+  });
+  const shots = (await readdir(SCREENSHOTS_DIR)).filter(
+    (name) => !name.startsWith("."),
+  );
+  if (shots.length < 3 || shots.length > 4) {
+    throw new Error(
+      `screenshots/ must hold 3 or 4 images, found ${shots.length}`,
+    );
+  }
+  const dossier = await buildDossier(OUTPUT_DIR, {
+    text_max_bytes: DOSSIER_TEXT_MAX_BYTES,
+  });
+  if (dossier.length > DOSSIER_MAX_BYTES) {
+    throw new Error(
+      `dossier.json is ${dossier.length} bytes, over the 1.5 MiB cap`,
+    );
+  }
+  await writeFile(join(OUTPUT_DIR, "dossier.json"), dossier);
 }
 
-function validateInputs(gameDir: string, shotsDir: string): string[] {
-  if (!existsSync(gameDir) || !statSync(gameDir).isDirectory()) {
-    fail(`game/ directory not found under ${resolve(process.cwd())}`);
-  }
-  if (!existsSync(join(gameDir, 'index.html'))) {
-    fail('game/index.html is missing — the game has no entry page');
-  }
-  if (!existsSync(shotsDir) || !statSync(shotsDir).isDirectory()) {
-    fail(`screenshots/ directory not found under ${resolve(process.cwd())}`);
-  }
-  const shots = readdirSync(shotsDir)
-    .filter((n) => /\.(png|jpe?g)$/i.test(n))
-    .sort();
-  if (shots.length === 0) fail('screenshots/ holds no image — at least one is required');
-  if (shots.length > 4) fail(`screenshots/ holds ${shots.length} images — at most 4 are allowed`);
-  for (const name of shots) {
-    const size = statSync(join(shotsDir, name)).size;
-    if (size > DOSSIER_CAPS.screenshots.max_bytes) {
-      fail(`screenshots/${name} is ${size} bytes — over the 256 KiB cap`);
-    }
-  }
-  return shots;
-}
-
-function main(): void {
-  const repoRoot = resolve(process.cwd());
-  const outDir = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
-  const gameDir = join(repoRoot, 'game');
-  const shotsDir = join(repoRoot, 'screenshots');
-  const shots = validateInputs(gameDir, shotsDir);
-  rmSync(outDir, { recursive: true, force: true });
-  mkdirSync(outDir, { recursive: true });
-  copyTreeSorted(gameDir, join(outDir, 'game'));
-  copyTreeSorted(shotsDir, join(outDir, 'screenshots'));
-  const dossier = buildDossier(outDir, DOSSIER_CAPS);
-  writeFileSync(join(outDir, 'dossier.json'), dossier);
-  const shotSizes = shots.map((n) => `${n} (${statSync(join(outDir, 'screenshots', n)).size} bytes)`).join(', ');
-  console.log(`Solmar Heat: wrote ${shots.length} screenshots [${shotSizes}] and dossier.json to ${outDir}`);
-}
-
-main();
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+});

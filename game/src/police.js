@@ -1,113 +1,175 @@
-// Solmar Heat — the wanted system and the Solmar police.
-// Heat (0-100) cools down when the player hides; stars are always
-// ceil(heat/25). Police cruisers spawn at the map edge, chase, ram, and
-// bust the player if they catch them slow and close.
-import { WANTED, starsFromHeat } from './config.js';
-import { clamp, angleTo, angleDiff, dist2 } from './random.js';
-import { CAR_MODELS } from './vehicles.js';
+// Solmar Heat — wanted stars, patrol cars, foot cops, busted / wasted.
+import { VEHICLE_MODELS, TUNING } from "./config.js";
+import { Rng, clamp, distance, angleTo } from "./random.js";
+import { createVehicle } from "./vehicles.js";
 
 export class Police {
   constructor(city) {
     this.city = city;
-    this.cruisers = [];
+    this.rng = new Rng(4242);
+    this.wanted = 0;
+    this.heat = 0;
+    this.quietTime = 0;
+    this.cars = [];
+    this.cops = [];
+    this.enemies = [];
     this.spawnTimer = 0;
-    this.bustTimer = 0;
-    this.busted = false;
+    this.sirenOn = false;
+    this.hurtCooldown = 0;
   }
 
-  get stars() { return 0; } // stars are derived from the player's heat, not stored here
-
-  wantedCount(player) {
-    return Math.min(1 + starsFromHeat(player.heat), 6);
+  addHeat(stars, reason) {
+    if (this.wanted >= 5) return;
+    this.wanted = clamp(this.wanted + stars, 0, 5);
+    this.heat = this.wanted;
+    this.quietTime = 0;
+    if (reason) this.lastCrime = reason;
   }
 
-  update(dt, player, traffic) {
-    if (player.dead) return;
-    const stars = starsFromHeat(player.heat);
-    // Heat cools when the player is out of sight; faster while hidden.
-    const cooling = player.hidden ? WANTED.hideCoolRate : WANTED.coolRate;
-    if (stars > 0) {
-      const nearestCop = this.cruisers.reduce((m, c) => Math.min(m, Math.sqrt(dist2(c.x, c.y, player.x, player.y))), Infinity);
-      if (nearestCop > 420) player.heat = clamp(player.heat - cooling * dt, 0, WANTED.maxHeat);
+  setWanted(stars) {
+    this.wanted = clamp(stars, 0, 5);
+    this.heat = this.wanted;
+    this.quietTime = 0;
+  }
+
+  spawnPoliceCar(player) {
+    const model = VEHICLE_MODELS.find((m) => m.kind === "police");
+    const angle = this.rng.range(0, Math.PI * 2);
+    const d = this.rng.range(520, 720);
+    const car = createVehicle(model, player.x + Math.cos(angle) * d, player.y + Math.sin(angle) * d, angleTo(player.x + Math.cos(angle) * d, player.y + Math.sin(angle) * d, player.x, player.y));
+    car.siren = true;
+    car.speed = 200;
+    this.cars.push(car);
+  }
+
+  spawnCop(player) {
+    this.cops.push({
+      x: player.x + this.rng.range(-320, 320),
+      y: player.y + this.rng.range(-320, 320),
+      angle: 0,
+      speed: 0,
+      health: 50,
+      kind: "cop",
+      shootTimer: this.rng.range(0.5, 1.5),
+    });
+  }
+
+  spawnEnemy(x, y) {
+    const e = {
+      x, y,
+      angle: this.rng.range(0, Math.PI * 2),
+      speed: 0,
+      health: 60,
+      kind: "rat",
+      shootTimer: this.rng.range(0.8, 2),
+    };
+    this.enemies.push(e);
+    return e;
+  }
+
+  nearbyEnemies(x, y, range) {
+    return [...this.cops, ...this.enemies].filter((e) => distance(x, y, e.x, e.y) < range);
+  }
+
+  rayHit(x, y, angle) {
+    let best = null;
+    let bestD = TUNING.shootRange;
+    for (const e of [...this.cops, ...this.enemies]) {
+      const dx = e.x - x;
+      const dy = e.y - y;
+      const along = dx * Math.cos(angle) + dy * Math.sin(angle);
+      const side = Math.abs(dx * -Math.sin(angle) + dy * Math.cos(angle));
+      if (along > 0 && along < bestD && side < 26) {
+        bestD = along;
+        best = e;
+      }
     }
-    // Spawn cruisers up to the wanted count.
+    return best;
+  }
+
+  onEnemyDown(enemy, player) {
+    this.enemies = this.enemies.filter((e) => e !== enemy);
+    this.cops = this.cops.filter((e) => e !== enemy);
+    if (player) player.cash += 40;
+    this.addHeat(1, "took down a " + enemy.kind);
+  }
+
+  onPlayerDown(player) {
+    // Handled by the game: wasted screen, respawn, cash lost.
+  }
+
+  update(dt, player, city, effects, audio) {
+    this.sirenOn = this.wanted > 0;
+    this.hurtCooldown = Math.max(0, this.hurtCooldown - dt);
+    if (this.wanted > 0) {
+      this.quietTime += dt;
+      if (this.quietTime > TUNING.wantedDecaySeconds) {
+        this.wanted -= 1;
+        this.heat = this.wanted;
+        this.quietTime = 0;
+      }
+    }
+    const wantCars = this.wanted === 0 ? 0 : Math.min(1 + this.wanted, TUNING.policeCarCap);
+    const wantCops = player.car ? 0 : Math.min(this.wanted, TUNING.copCap);
     this.spawnTimer -= dt;
-    const want = stars > 0 ? this.wantedCount(player) : 0;
-    if (this.cruisers.length < want && this.spawnTimer <= 0) {
-      this.spawnTimer = 1.6;
-      const spots = [
-        { x: player.x + 700, y: player.y }, { x: player.x - 700, y: player.y },
-        { x: player.x, y: player.y + 700 }, { x: player.x, y: player.y - 700 },
-      ];
-      const s = spots[this.cruisers.length % spots.length];
-      const sx = clamp(s.x, 40, 2840);
-      const sy = clamp(s.y, 40, 2840);
-      const cruiser = {
-        x: sx, y: sy, angle: angleTo(sx, sy, player.x, player.y),
-        speed: 0, top: 430 + stars * 28, color: '#1c2733', sirenPhase: 0,
-        width: 48, length: 24, ramTimer: 0,
-      };
-      this.cruisers.push(cruiser);
+    if (this.spawnTimer <= 0) {
+      this.spawnTimer = 1.2;
+      if (this.cars.length < wantCars) this.spawnPoliceCar(player);
+      if (this.cops.length < wantCops) this.spawnCop(player);
     }
-    // Trim cruisers when the heat is gone.
-    if (stars === 0 && this.cruisers.length > 0) {
-      this.cruisers = this.cruisers.filter((c) => Math.sqrt(dist2(c.x, c.y, player.x, player.y)) < 900);
-      if (this.cruisers.length > 0) {
-        // Drive the leftovers off: they cruise away and despawn at range.
-        for (const c of this.cruisers) {
-          c.speed = 200;
-          c.angle += angleDiff(c.angle, angleTo(c.x, c.y, 1440, 1440)) * dt * 0.5;
-          c.x += Math.cos(c.angle) * c.speed * dt;
-          c.y += Math.sin(c.angle) * c.speed * dt;
+    for (const car of this.cars) {
+      if (car.ramTimer > 0) car.ramTimer -= dt;
+      const want = angleTo(car.x, car.y, player.x, player.y);
+      let diff = want - car.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const steer = clamp(diff * 1.4, -1, 1);
+      const targetSpeed = car.model.topSpeed * 0.92;
+      car.speed += clamp(targetSpeed - car.speed, -420 * dt, 320 * dt);
+      car.angle += steer * car.model.grip * clamp(Math.abs(car.speed) / 220, 0, 1) * dt;
+      car.x += Math.cos(car.angle) * car.speed * dt;
+      car.y += Math.sin(car.angle) * car.speed * dt;
+      if (distance(car.x, car.y, player.x, player.y) < 46 && (!car.ramTimer || car.ramTimer <= 0)) {
+        car.ramTimer = 1.2;
+        if (player.car) {
+          player.car.speed *= 0.8;
+          effects.addCrash(player.x, player.y);
+          audio.crash();
         }
-        this.cruisers = this.cruisers.filter((c) => Math.sqrt(dist2(c.x, c.y, player.x, player.y)) < 1200);
-        return;
-      }
-    }
-    // Chase: steer toward the player, ram on contact, bust when slow + close.
-    for (const c of this.cruisers) {
-      c.sirenPhase += dt * 6;
-      c.ramTimer = Math.max(0, (c.ramTimer || 0) - dt);
-      const target = angleTo(c.x, c.y, player.x, player.y);
-      const turn = clamp(angleDiff(c.angle, target), -2.4 * dt, 2.4 * dt);
-      c.angle += turn;
-      c.speed = clamp(c.speed + 300 * dt, 0, c.top);
-      const nx = c.x + Math.cos(c.angle) * c.speed * dt;
-      const ny = c.y + Math.sin(c.angle) * c.speed * dt;
-      if (!this.city.collides(nx, ny, 16)) { c.x = nx; c.y = ny; }
-      else { c.angle += 0.6; c.speed *= 0.6; }
-      const d = Math.sqrt(dist2(c.x, c.y, player.x, player.y));
-      if (d < 46) {
-        // A ram lands at most once per cruiser per 0.8s: without the
-        // cooldown the per-frame hit collapsed the player's speed to zero.
-        if (c.ramTimer <= 0) {
-          c.ramTimer = 0.8;
-          if (player.driving) {
-            player.car.speed *= 0.55;
-            player.car.health = Math.max(0, player.car.health - 4);
-          }
-        }
-        if (!player.driving) player.takeDamage(8 * dt * 10);
-        if (!player.driving && player.speed < 40 && d < 40) {
-          this.bustTimer += dt;
-          if (this.bustTimer > 1.6) {
-            this.busted = true;
-            this.bustTimer = 0;
-          }
-        } else {
-          this.bustTimer = Math.max(0, this.bustTimer - dt);
+        // Bounce the patrol car off so it cannot grind the player to a stop.
+        car.x -= Math.cos(car.angle) * 55;
+        car.y -= Math.sin(car.angle) * 55;
+        car.speed *= 0.3;
+        if (this.hurtCooldown <= 0) {
+          player.hurt(player.car ? 6 : 10, this);
+          this.hurtCooldown = 0.8;
         }
       }
     }
-    void traffic;
-  }
-
-  reset() {
-    this.cruisers = [];
-    this.spawnTimer = 0;
-    this.bustTimer = 0;
-    this.busted = false;
+    for (const cop of [...this.cops, ...this.enemies]) {
+      const d = distance(cop.x, cop.y, player.x, player.y);
+      const want = angleTo(cop.x, cop.y, player.x, player.y);
+      cop.angle = want;
+      if (d > 60) {
+        const speed = cop.kind === "cop" ? 175 : 150;
+        cop.x += Math.cos(want) * speed * dt;
+        cop.y += Math.sin(want) * speed * dt;
+      } else if (cop.kind === "cop" && !player.car) {
+        player.hurt(14 * dt, this);
+      } else if (cop.kind === "rat" && !player.car) {
+        player.hurt(10 * dt, this);
+      }
+      cop.shootTimer -= dt;
+      if (cop.shootTimer <= 0 && d < 380 && d > 90) {
+        cop.shootTimer = this.rng.range(1.2, 2.2);
+        effects.addShot(cop.x, cop.y, player.x, player.y);
+        audio.enemyShot();
+        if (this.rng.chance(0.3)) player.hurt(7, this);
+      }
+    }
+    if (this.wanted === 0) {
+      this.cars = this.cars.filter((c) => distance(c.x, c.y, player.x, player.y) < 900);
+      if (this.cars.length === 0) this.cops = [];
+    }
   }
 }
-
-export { CAR_MODELS };

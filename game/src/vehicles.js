@@ -1,75 +1,79 @@
-// Solmar Heat — cars: models, driving physics, stealing.
-// A car is a small physics body: heading, speed, steering that only bites
-// while moving, and a handbrake that trades grip for a slide.
-import { CAR } from './config.js';
-import { clamp, angleDiff, dist2 } from './random.js';
+// Solmar Heat — vehicles: arcade driving physics, collisions, parked cars.
+import { WORLD } from "./config.js";
+import { clamp, distance } from "./random.js";
+import { collideCircleWithBuildings, pointInBuilding } from "./city.js";
 
-export const CAR_MODELS = [
-  { name: 'Coral Coupe', color: '#e74c3c', top: 560, accel: 460, len: 46, wid: 22 },
-  { name: 'Palm Sedan', color: '#3498db', top: 500, accel: 420, len: 48, wid: 23 },
-  { name: 'Harbor Taxi', color: '#f1c40f', top: 480, accel: 400, len: 48, wid: 23 },
-  { name: 'Dune Pickup', color: '#8e6e4a', top: 470, accel: 380, len: 52, wid: 24 },
-  { name: 'Neon Hatchback', color: '#9b59b6', top: 520, accel: 440, len: 42, wid: 21 },
-  { name: 'Marina Van', color: '#ecf0f1', top: 430, accel: 340, len: 54, wid: 25 },
-];
+let nextVehicleId = 1;
 
-export class Car {
-  constructor(id, model, x, y, angle) {
-    this.id = id;
-    this.model = model;
-    this.x = x;
-    this.y = y;
-    this.angle = angle;
-    this.speed = 0;
-    this.stolen = false;
-    this.driver = null; // 'player' | 'traffic' | 'police' | null
-    this.health = 100;
-    this.smoke = 0;
-  }
-
-  get length() { return this.model.len; }
-  get width() { return this.model.wid; }
-
-  update(dt, input, city) {
-    const steer = (input.x || 0);
-    const throttle = input.y || 0; // -1 forward, +1 brake/reverse
-    const handbrake = !!input.handbrake;
-    if (throttle < 0) this.speed += this.model.accel * dt;
-    else if (throttle > 0) {
-      if (this.speed > 8) this.speed -= CAR.brake * dt;
-      else this.speed -= CAR.reverseAccel * dt;
-    } else {
-      this.speed *= Math.pow(0.4, dt);
-      if (Math.abs(this.speed) < 4) this.speed = 0;
-    }
-    this.speed = clamp(this.speed, -CAR.maxReverse, this.model.top);
-    const grip = handbrake ? 0.55 : 1;
-    const turn = steer * CAR.turnRate * clamp(Math.abs(this.speed) / 180, 0, 1) * grip;
-    this.angle += turn * dt * (this.speed >= 0 ? 1 : -1);
-    const nx = this.x + Math.cos(this.angle) * this.speed * dt;
-    const ny = this.y + Math.sin(this.angle) * this.speed * dt;
-    if (city.collides(nx, ny, this.width / 2 + 2)) {
-      if (Math.abs(this.speed) > 240) this.health -= 6;
-      this.speed *= -0.25;
-    } else {
-      this.x = nx;
-      this.y = ny;
-    }
-    if (this.health < 45) this.smoke = Math.min(1, this.smoke + dt * 0.5);
-  }
-
-  // Nearest parked/traffic car within reach of a point, for the E key.
-  static nearest(cars, x, y, maxDist) {
-    let best = null;
-    let bestD = maxDist * maxDist;
-    for (const c of cars) {
-      const d = dist2(x, y, c.x, c.y);
-      if (d < bestD) { bestD = d; best = c; }
-    }
-    return best;
-  }
+export function createVehicle(model, x, y, angle = 0) {
+  return {
+    id: nextVehicleId++,
+    model,
+    x, y, angle,
+    speed: 0,
+    color: model.color,
+    parked: false,
+    police: model.kind === "police",
+    siren: false,
+    skid: 0,
+    crashed: 0,
+  };
 }
 
-export function angleLerp(a, b, t) {
-  return a + angleDiff(a, b) * t;
+export function driveVehicle(vehicle, steer, throttle, brake, dt, city) {
+  const m = vehicle.model;
+  const forward = { x: Math.cos(vehicle.angle), y: Math.sin(vehicle.angle) };
+  const accel = throttle * m.accel - brake * m.accel * 1.6;
+  vehicle.speed = clamp(vehicle.speed + accel * dt, -m.topSpeed * 0.45, m.topSpeed);
+  if (throttle === 0 && brake === 0) {
+    vehicle.speed *= Math.max(0, 1 - 1.4 * dt);
+    if (Math.abs(vehicle.speed) < 4) vehicle.speed = 0;
+  }
+  const speedFactor = clamp(Math.abs(vehicle.speed) / 220, 0, 1);
+  vehicle.angle += steer * m.grip * speedFactor * dt * Math.sign(vehicle.speed || 1);
+  const nx = vehicle.x + forward.x * vehicle.speed * dt;
+  const ny = vehicle.y + forward.y * vehicle.speed * dt;
+  const hit = pointInBuilding(city, nx, ny);
+  if (hit) {
+    vehicle.speed *= -0.25;
+    vehicle.crashed = 0.4;
+    const pushed = collideCircleWithBuildings(city, vehicle.x, vehicle.y, m.length * 0.42);
+    vehicle.x = pushed.x;
+    vehicle.y = pushed.y;
+  } else {
+    vehicle.x = clamp(nx, 24, WORLD.size - 24);
+    vehicle.y = clamp(ny, 24, WORLD.size - 24);
+  }
+  vehicle.skid = Math.abs(steer) > 0.7 && Math.abs(vehicle.speed) > 240 ? 1 : 0;
+  if (vehicle.crashed > 0) vehicle.crashed -= dt;
+}
+
+export function carsOverlap(a, b) {
+  const d = distance(a.x, a.y, b.x, b.y);
+  const min = (a.model.length + b.model.length) * 0.32;
+  if (d >= min || d < 0.01) return false;
+  const push = (min - d) / 2;
+  const ux = (b.x - a.x) / d;
+  const uy = (b.y - a.y) / d;
+  a.x -= ux * push;
+  a.y -= uy * push;
+  b.x += ux * push;
+  b.y += uy * push;
+  const swap = a.speed;
+  a.speed = b.speed * 0.4;
+  b.speed = swap * 0.4;
+  return true;
+}
+
+export function nearestVehicle(vehicles, x, y, maxDist) {
+  let best = null;
+  let bestD = maxDist;
+  for (const v of vehicles) {
+    const d = distance(x, y, v.x, v.y);
+    if (d < bestD) {
+      bestD = d;
+      best = v;
+    }
+  }
+  return best;
 }

@@ -1,132 +1,155 @@
-// Solmar Heat — the player on foot and behind the wheel.
-// On foot: WASD movement, Shift to run, mouse to aim, click/F to fire,
-// 1/2/3 to swap weapons. In a car: the car drives and the player rides.
-import { PLAYER, WEAPONS, WANTED } from './config.js';
-import { clamp, dist2 } from './random.js';
-import { Car } from './vehicles.js';
+// Solmar Heat — the player: walking, driving, stealing cars, fighting.
+import { TUNING } from "./config.js";
+import { clamp, distance, angleTo } from "./random.js";
+import { collideCircleWithBuildings } from "./city.js";
+import { driveVehicle, nearestVehicle } from "./vehicles.js";
 
 export class Player {
   constructor(x, y) {
     this.x = x;
     this.y = y;
     this.angle = -Math.PI / 2;
-    this.aimAngle = -Math.PI / 2;
-    this.health = PLAYER.maxHealth;
-    this.cash = PLAYER.startCash;
-    this.weapon = 'pistol';
-    this.weaponsOwned = ['fists', 'pistol', 'smg'];
-    this.car = null; // Car instance when driving, else null
-    this.fireCooldown = 0;
+    this.speed = 0;
+    this.health = TUNING.playerHealth;
+    this.cash = 120;
+    this.ammo = TUNING.pistolAmmo;
+    this.car = null;
+    this.onFoot = true;
+    this.punchCooldown = 0;
+    this.shootCooldown = 0;
     this.hurtFlash = 0;
-    this.dead = false;
-    this.heat = 0;
-    this.hidden = false;
-    this.meleeSwing = 0;
+    this.muzzle = 0;
+    this.aimAngle = 0;
+    this.alive = true;
   }
 
-  get driving() { return this.car !== null; }
-  get speed() { return this.car ? Math.abs(this.car.speed) : 0; }
+  update(dt, input, city, vehicles, effects, audio, police) {
+    if (!this.alive) return;
+    if (this.punchCooldown > 0) this.punchCooldown -= dt;
+    if (this.shootCooldown > 0) this.shootCooldown -= dt;
+    if (this.hurtFlash > 0) this.hurtFlash -= dt;
+    if (this.muzzle > 0) this.muzzle -= dt;
 
-  addHeat(amount) {
-    this.heat = clamp(this.heat + amount, 0, WANTED.maxHeat);
+    if (this.car) {
+      this.onFoot = false;
+      const move = input.moveAxis();
+      const steer = -move.x;
+      const throttle = move.y < 0 ? 1 : 0;
+      const brake = move.y > 0 ? 1 : 0;
+      const boost = input.down("ShiftLeft") || input.down("ShiftRight") ? 1.35 : 1;
+      const before = this.car.speed;
+      driveVehicle(this.car, steer, throttle, brake, dt, city);
+      if (boost > 1 && throttle) this.car.speed = clamp(this.car.speed * (1 + 0.25 * dt), -200, this.car.model.topSpeed * boost);
+      if (Math.abs(before - this.car.speed) > 220) {
+        effects.addCrash(this.car.x, this.car.y);
+        audio.crash();
+      }
+      this.x = this.car.x;
+      this.y = this.car.y;
+      this.angle = this.car.angle;
+      this.speed = Math.abs(this.car.speed);
+      if (this.car.skid) effects.addSkid(this.car.x, this.car.y, this.car.angle);
+      if (input.pressed("KeyE")) this.exitCar(vehicles);
+      if (input.pressed("KeyH")) audio.horn();
+      return;
+    }
+
+    this.onFoot = true;
+    const move = input.moveAxis();
+    const len = Math.hypot(move.x, move.y) || 1;
+    const run = input.down("ShiftLeft") || input.down("ShiftRight");
+    const speed = TUNING.walkSpeed * (run ? TUNING.runMultiplier : 1);
+    const nx = this.x + (move.x / len) * speed * dt * (move.x || move.y ? 1 : 0);
+    const ny = this.y + (move.y / len) * speed * dt * (move.x || move.y ? 1 : 0);
+    const pushed = collideCircleWithBuildings(city, nx, ny, TUNING.playerRadius);
+    this.x = pushed.x;
+    this.y = pushed.y;
+    if (move.x || move.y) {
+      this.angle = Math.atan2(move.y, move.x);
+      this.speed = speed;
+    } else {
+      this.speed = 0;
+    }
+    if (input.pressed("KeyE")) {
+      const car = nearestVehicle(vehicles, this.x, this.y, 70);
+      if (car) this.enterCar(car, police, audio);
+    }
+    if (input.pressed("KeyF")) this.punch(police, effects, audio);
+    if (input.mouse.clicked) this.shoot(input, effects, audio, police);
   }
 
-  takeDamage(amount) {
-    if (this.dead) return;
+  enterCar(car, police, audio) {
+    this.car = car;
+    car.parked = false;
+    this.x = car.x;
+    this.y = car.y;
+    audio.chime();
+    if (police && !car.police) police.addHeat(1, "stole a car");
+  }
+
+  exitCar() {
+    const car = this.car;
+    this.car = null;
+    this.x = car.x + Math.cos(car.angle + Math.PI / 2) * 34;
+    this.y = car.y + Math.sin(car.angle + Math.PI / 2) * 34;
+    this.speed = 0;
+  }
+
+  punch(police, effects, audio) {
+    if (this.punchCooldown > 0 || this.car) return;
+    this.punchCooldown = TUNING.punchCooldown;
+    audio.punch();
+    const targets = police ? police.nearbyEnemies(this.x, this.y, TUNING.punchRange + 14) : [];
+    for (const t of targets) {
+      t.health -= TUNING.punchDamage;
+      effects.addHit(t.x, t.y);
+      if (t.health <= 0) police.onEnemyDown(t, this);
+    }
+  }
+
+  shoot(input, effects, audio, police) {
+    if (this.shootCooldown > 0 || this.car || this.ammo <= 0) return;
+    this.shootCooldown = TUNING.shootCooldown;
+    this.ammo -= 1;
+    this.muzzle = 0.08;
+    audio.shot();
+    const gx = this.x + Math.cos(this.aimAngle) * TUNING.shootRange;
+    const gy = this.y + Math.sin(this.aimAngle) * TUNING.shootRange;
+    effects.addShot(this.x, this.y, gx, gy);
+    const hit = police ? police.rayHit(this.x, this.y, this.aimAngle) : null;
+    if (hit) {
+      hit.health -= TUNING.pistolDamage;
+      effects.addHit(hit.x, hit.y);
+      if (hit.health <= 0) police.onEnemyDown(hit, this);
+    }
+  }
+
+  hurt(amount, police) {
+    if (!this.alive) return;
     this.health -= amount;
     this.hurtFlash = 0.35;
     if (this.health <= 0) {
       this.health = 0;
-      this.dead = true;
+      this.alive = false;
+      if (police) police.onPlayerDown(this);
     }
   }
 
-  heal(amount) { this.health = clamp(this.health + amount, 0, PLAYER.maxHealth); }
-
-  update(dt, input, city, world) {
-    if (this.dead) return;
-    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    this.hurtFlash = Math.max(0, this.hurtFlash - dt);
-    this.meleeSwing = Math.max(0, this.meleeSwing - dt);
-
-    // Weapon swap.
-    if (input.wasPressed('Digit1')) this.weapon = 'fists';
-    if (input.wasPressed('Digit2')) this.weapon = 'pistol';
-    if (input.wasPressed('Digit3')) this.weapon = 'smg';
-
-    // Aim follows the mouse (screen space converted by the caller via world.aim).
-    if (world && world.aimX !== undefined) {
-      this.aimAngle = Math.atan2(world.aimY - this.y, world.aimX - this.x);
-      if (!this.driving) this.angle = this.aimAngle;
-    }
-
-    if (this.driving) {
-      const axis = input.axis();
-      this.car.update(dt, { x: axis.x, y: -axis.y, handbrake: input.down('Space') }, city);
-      this.x = this.car.x;
-      this.y = this.car.y;
-      this.angle = this.car.angle;
-      return;
-    }
-
-    const axis = input.axis();
-    const len = Math.hypot(axis.x, axis.y) || 1;
-    const running = input.down('ShiftLeft') || input.down('ShiftRight');
-    const speed = (running ? PLAYER.runSpeed : PLAYER.walkSpeed);
-    const nx = this.x + (axis.x / len) * speed * dt * (axis.x || axis.y ? 1 : 0);
-    const ny = this.y + (axis.y / len) * speed * dt * (axis.x || axis.y ? 1 : 0);
-    if (!city.collides(nx, this.y, PLAYER.radius)) this.x = nx;
-    if (!city.collides(this.x, ny, PLAYER.radius)) this.y = ny;
-    city.resolveCircle(this, PLAYER.radius);
-  }
-
-  // Try to fire the current weapon. Returns a bullet descriptor or null.
-  tryFire(input, world) {
-    if (this.dead || this.driving) return null;
-    const w = WEAPONS[this.weapon];
-    const wantFire = w.auto ? input.mouseDown : (input.mouseClicked || input.wasPressed('KeyF'));
-    if (!wantFire || this.fireCooldown > 0) return null;
-    this.fireCooldown = w.rate;
-    if (this.weapon === 'fists') {
-      this.meleeSwing = 0.22;
-      return { melee: true, angle: this.aimAngle, range: w.range, damage: w.damage };
-    }
-    // Bullet spread comes from the seeded RNG only, never Math.random,
-    // so a fired shot is reproducible from the fixed seed.
-    const spread = this.weapon === 'smg' ? 0.09 : 0.02;
-    const a = this.aimAngle + (world.rng ? (world.rng.next() - 0.5) * spread * 2 : 0);
-    return {
-      melee: false,
-      x: this.x + Math.cos(this.aimAngle) * 22,
-      y: this.y + Math.sin(this.aimAngle) * 22,
-      vx: Math.cos(a) * 780,
-      vy: Math.sin(a) * 780,
-      damage: w.damage,
-      range: w.range,
-      traveled: 0,
-      kind: this.weapon,
-    };
-  }
-
-  // E key: get in the nearest car, or get out of the one being driven.
-  tryEnterExitCar(cars, onSteal) {
-    if (this.driving) {
-      const car = this.car;
-      car.driver = null;
-      car.speed *= 0.4;
-      this.car = null;
-      this.x = car.x + Math.cos(car.angle + Math.PI / 2) * 34;
-      this.y = car.y + Math.sin(car.angle + Math.PI / 2) * 34;
-      return 'exit';
-    }
-    const car = Car.nearest(cars, this.x, this.y, 64);
-    if (!car) return null;
-    if (!car.stolen && car.driver !== 'player') {
-      car.stolen = true;
-      if (onSteal) onSteal(car);
-    }
-    car.driver = 'player';
-    this.car = car;
-    return 'enter';
+  resetAt(x, y) {
+    this.x = x;
+    this.y = y;
+    this.health = TUNING.playerHealth;
+    this.alive = true;
+    this.car = null;
+    this.speed = 0;
   }
 }
+
+export function aimAtScreen(player, input, camera) {
+  const wx = camera.x + (input.mouse.x - camera.viewW / 2) / camera.zoom;
+  const wy = camera.y + (input.mouse.y - camera.viewH / 2) / camera.zoom;
+  player.aimAngle = angleTo(player.x, player.y, wx, wy);
+  return { x: wx, y: wy };
+}
+
+export { distance };

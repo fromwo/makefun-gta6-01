@@ -1,8 +1,4 @@
-// Solmar Heat — deterministic seeded randomness.
-// One fixed seed drives the whole city, traffic and pickups, so the same
-// seed always builds the same Solmar. Gameplay uses no Math.random anywhere;
-// the only exception is the white-noise buffer inside audio.js, which is
-// sound synthesis, not game state.
+// Solmar Heat — small seeded RNG so staged scenes are reproducible.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -14,37 +10,43 @@ export function mulberry32(seed) {
   };
 }
 
-export function hashString(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+export class Rng {
+  constructor(seed) {
+    this.next = mulberry32(seed);
   }
-  return h >>> 0;
+  range(min, max) {
+    return min + this.next() * (max - min);
+  }
+  int(min, max) {
+    return Math.floor(this.range(min, max + 1));
+  }
+  pick(list) {
+    return list[Math.floor(this.next() * list.length)];
+  }
+  chance(p) {
+    return this.next() < p;
+  }
 }
 
-export function makeRng(seed) {
-  const next = mulberry32(seed);
-  return {
-    next,
-    range(min, max) { return min + next() * (max - min); },
-    int(min, max) { return Math.floor(min + next() * (max - min + 1)); },
-    pick(list) { return list[Math.floor(next() * list.length)]; },
-    chance(p) { return next() < p; },
-  };
+export function clamp(value, min, max) {
+  return value < min ? min : value > max ? max : value;
 }
 
-export function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
-export function lerp(a, b, t) { return a + (b - a) * t; }
-export function dist2(ax, ay, bx, by) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  return dx * dx + dy * dy;
+export function lerp(a, b, t) {
+  return a + (b - a) * t;
 }
-export function angleTo(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
-export function angleDiff(a, b) {
-  let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return d;
+
+export function angleLerp(a, b, t) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+export function distance(x1, y1, x2, y2) {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+
+export function angleTo(x1, y1, x2, y2) {
+  return Math.atan2(y2 - y1, x2 - x1);
 }

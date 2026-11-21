@@ -1,73 +1,69 @@
-// Solmar Heat — screenshot staging for ?shot=.
-// Each shot sets up a fixed, deterministic game state so the four screenshots
-// show the title screen, driving, a mission in progress, and a police chase.
-// Stars always come from heat via ceil(heat/25): heat 10 -> 1 star, 90 -> 4.
-import { TILE } from './config.js';
-import { CAR_MODELS, Car } from './vehicles.js';
+// Solmar Heat — ?shot= staging for screenshots. Each preset builds one
+// readable scene from the real game systems (no special render path).
+import { VEHICLE_MODELS } from "./config.js";
+import { createVehicle } from "./vehicles.js";
 
-export function stageShot(shot, game) {
-  const { player, traffic, police, missions, city } = game;
-  const start = city.playerStart();
-  player.x = start.x;
-  player.y = start.y;
-  player.health = 100;
-  player.cash = 1250;
-  player.heat = 0;
-  player.dead = false;
-  police.reset();
-  missions.reset();
-
-  if (shot === 'start') {
-    game.mode = 'title';
-    player.x = start.x;
-    player.y = start.y;
-    return;
-  }
-  game.mode = 'playing';
-  if (shot === 'drive') {
-    // Player in a coral coupe, mid-avenue, traffic around.
-    const car = new Car(900, CAR_MODELS[0], start.x + 40, start.y, 0);
-    car.driver = 'player';
-    car.speed = 320;
-    player.car = car;
-    player.x = car.x;
-    player.y = car.y;
-    player.angle = 0;
-    game.extraCars = [car];
-    player.heat = 10; // 1 star, calm cruise
-    return;
-  }
-  if (shot === 'mission') {
-    missions.startNext(player);
-    // Walk the player close to the parcel pickup so the marker reads clearly.
-    player.x = missions.active.def.pickup.x - 120;
-    player.y = missions.active.def.pickup.y - 60;
-    player.weapon = 'pistol';
-    player.heat = 10; // 1 star while on the job
-    return;
-  }
-  if (shot === 'chase') {
-    const car = new Car(901, CAR_MODELS[1], start.x, start.y, 0);
-    car.driver = 'player';
-    car.speed = 380;
-    player.car = car;
-    player.x = car.x;
-    player.y = car.y;
-    player.heat = 90; // 4 stars: a full chase
-    missions.startNext(player);
-    // Two cruisers trailing behind on either side: close enough to read as
-    // a chase, far enough back that they trail instead of pile onto the car.
-    police.cruisers = [
-      { x: start.x - 320, y: start.y - 60, angle: 0, speed: 380, top: 540, color: '#1c2733', sirenPhase: 0, width: 48, length: 24, ramTimer: 0 },
-      { x: start.x - 380, y: start.y + 70, angle: 0, speed: 360, top: 540, color: '#1c2733', sirenPhase: 2, width: 48, length: 24, ramTimer: 0 },
-    ];
-    game.extraCars = [car];
-    return;
-  }
-  game.mode = 'title';
+function putPlayerInCar(game, modelIndex, x, y, angle, speed) {
+  const model = VEHICLE_MODELS[modelIndex];
+  const car = createVehicle(model, x, y, angle);
+  car.speed = speed;
+  game.player.car = car;
+  game.player.onFoot = false;
+  game.player.x = x;
+  game.player.y = y;
+  game.player.angle = angle;
+  game.player.speed = Math.abs(speed);
+  game.camera.x = x;
+  game.camera.y = y;
+  return car;
 }
 
-export function shotParam() {
-  const q = new URLSearchParams(window.location.search);
-  return q.get('shot');
+export function applyShotPreset(game) {
+  const params = new URLSearchParams(window.location.search);
+  const shot = params.get("shot") ?? "";
+  if (!shot) return null;
+  if (shot === "start") {
+    game.showMenu();
+    game.camera.x = 1400;
+    game.camera.y = 1400;
+    return "start";
+  }
+  game.startGame(false);
+  if (shot === "drive") {
+    putPlayerInCar(game, 4, 900, 1400, 0, 380);
+    const taxi = createVehicle(VEHICLE_MODELS[1], 1250, 1000, Math.PI / 2);
+    taxi.speed = 150;
+    game.traffic.cars.push(taxi);
+    const coupe = createVehicle(VEHICLE_MODELS[2], 700, 1000, Math.PI / 2);
+    coupe.speed = 170;
+    game.traffic.cars.push(coupe);
+    return "drive";
+  }
+  if (shot === "mission") {
+    putPlayerInCar(game, 2, 500, 2600, 0, 150);
+    const def = game.missions.defs[1];
+    game.missions.startMission(def, game);
+    game.camera.x = 500;
+    game.camera.y = 2600;
+    return "mission";
+  }
+  if (shot === "chase") {
+    putPlayerInCar(game, 4, 1100, 1800, 0, 420);
+    game.police.setWanted(3);
+    // Patrol cars join the chase from behind on the same road, so the
+    // player stays visible ahead of them instead of piling up.
+    const behind = [400, 550, 700];
+    for (let i = 0; i < 3; i++) {
+      game.police.spawnPoliceCar(game.player);
+      const car = game.police.cars[game.police.cars.length - 1];
+      car.x = game.player.x - behind[i];
+      car.y = game.player.y + (i === 2 ? 30 : 0);
+      car.angle = 0;
+      car.speed = 400;
+    }
+    game.camera.x = 1100;
+    game.camera.y = 1800;
+    return "chase";
+  }
+  return null;
 }
