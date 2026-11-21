@@ -1,52 +1,55 @@
-// Solmar Heat — selftest.js (r10)
-// Deterministic self-checks that run in the browser on every load
-// (and can run in Node wherever the modules load without a DOM):
-// the RNG is reproducible, the same seed builds the same city twice,
-// the city has real content, all three missions are fully defined,
-// and the config numbers are sane.
-import { CONFIG, MISSION_DEFS } from './config.js';
+// Solmar Heat — built-in self test (?selftest=1).
+// Runs without touching the live game: checks seed determinism, the wanted
+// formula, mission definitions and city invariants, and reports to the
+// console and to window.__selftest for headless verification.
+import { SEED, starsFromHeat, MISSION_REWARDS } from './config.js';
 import { makeRng } from './random.js';
 import { buildCity } from './city.js';
+import { MISSION_DEFS } from './missions.js';
 
 export function runSelfTest() {
   const results = [];
-  function check(name, ok, detail) {
-    results.push({ name, ok: !!ok, detail: detail || '' });
-  }
-  const a = makeRng(42);
-  const b = makeRng(42);
-  check('rng-deterministic', a.next() === b.next() && a.int(1, 100) === b.int(1, 100), 'same seed, same stream');
-  // r10: the shuffle helper rides the same stream, so it must agree too.
-  const s1 = makeRng(7).shuffle([1, 2, 3, 4, 5]);
-  const s2 = makeRng(7).shuffle([1, 2, 3, 4, 5]);
-  check('rng-shuffle-deterministic', JSON.stringify(s1) === JSON.stringify(s2), 'shuffle=' + s1.join(','));
-  const c1 = buildCity(CONFIG.seed);
-  const c2 = buildCity(CONFIG.seed);
-  check(
-    'city-deterministic',
-    JSON.stringify(c1.buildings) === JSON.stringify(c2.buildings) && c1.roads.length === c2.roads.length,
-    c1.buildings.length + ' buildings, ' + c1.roads.length + ' roads',
-  );
-  check('city-has-content', c1.buildings.length > 50 && c1.roads.length >= 20, 'buildings=' + c1.buildings.length);
-  check('city-districts', c1.districts.length === 9, '9 districts');
-  check('missions-count', MISSION_DEFS.length >= 3, MISSION_DEFS.length + ' missions');
-  check(
-    'missions-fields',
-    MISSION_DEFS.every((m) => m.id && m.title && m.giver && m.briefing && m.target && m.dropoff && m.reward > 0),
-    'all fields present',
-  );
-  check('missions-kinds', new Set(MISSION_DEFS.map((m) => m.kind)).size >= 3, 'deliver, escort, combat');
-  check(
-    'config-sane',
-    CONFIG.worldSize > 1000 && CONFIG.maxWanted === 5 && CONFIG.carMaxSpeed > 0,
-    'world=' + CONFIG.worldSize,
-  );
-  const passed = results.filter((r) => r.ok).length;
-  return { passed, total: results.length, results };
-}
+  const check = (name, ok, detail = '') => results.push({ name, ok, detail });
 
-export function selfTestReport() {
-  const t = runSelfTest();
-  return t.results.map((r) => (r.ok ? 'PASS' : 'FAIL') + ' ' + r.name + ' — ' + r.detail).join('\n')
-    + '\n' + t.passed + '/' + t.total + ' self-tests passed';
+  // Seeded RNG repeats exactly.
+  const a = makeRng(SEED);
+  const b = makeRng(SEED);
+  let same = true;
+  for (let i = 0; i < 50; i++) if (a.next() !== b.next()) same = false;
+  check('rng-deterministic', same);
+
+  // Wanted stars follow ceil(heat/25).
+  check('stars-0', starsFromHeat(0) === 0);
+  check('stars-heat10', starsFromHeat(10) === 1, 'heat 10 -> 1 star');
+  check('stars-heat25', starsFromHeat(25) === 1);
+  check('stars-heat26', starsFromHeat(26) === 2);
+  check('stars-heat90', starsFromHeat(90) === 4, 'heat 90 -> 4 stars');
+  check('stars-heat100', starsFromHeat(100) === 4, 'heat 100 -> 4 stars');
+  check('stars-heat125', starsFromHeat(125) === 5, 'heat 125 -> 5 stars');
+
+  // City invariants from the fixed seed.
+  const c1 = buildCity(SEED);
+  const c2 = buildCity(SEED);
+  check('city-deterministic', JSON.stringify(c1.buildings) === JSON.stringify(c2.buildings));
+  check('city-has-buildings', c1.buildings.length > 40, `${c1.buildings.length} buildings`);
+  check('city-park', c1.park.w > 0 && c1.park.h > 0);
+  check('city-sea-west', c1.isWater(10, 1000) && !c1.isWater(1000, 1000));
+  check('city-port-east', c1.port.x > 2600);
+  check('city-spawn-on-road', c1.isRoad(c1.playerStart().x, c1.playerStart().y));
+  check('city-car-spawns', c1.carSpawns.length >= 10, `${c1.carSpawns.length} spawns`);
+  check('city-pickups', c1.pickupSpots.length === 10);
+
+  // Missions are all defined, ordered and rewarded.
+  check('missions-count', MISSION_DEFS.length >= 3, `${MISSION_DEFS.length} missions`);
+  check('missions-rewards', MISSION_DEFS.every((m) => m.reward > 0));
+  check('missions-ids-unique', new Set(MISSION_DEFS.map((m) => m.id)).size === MISSION_DEFS.length);
+  check('missions-reward-values', MISSION_DEFS[0].reward === MISSION_REWARDS.rosa);
+
+  const passed = results.filter((r) => r.ok).length;
+  const failed = results.filter((r) => !r.ok);
+  const summary = { passed, failed: failed.length, total: results.length, results };
+  window.__selftest = summary;
+  console.log(`[selftest] ${passed}/${results.length} passed`);
+  for (const f of failed) console.error(`[selftest] FAIL ${f.name} ${f.detail}`);
+  return summary;
 }

@@ -1,109 +1,75 @@
-// Solmar Heat — vehicles.js (r10)
-// Cars: how they are built, where parked cars spawn, arcade driving
-// physics (accelerate, brake, steer, crash into buildings, wreck),
-// and the simple straight-line driver used by ambient traffic.
-import { CONFIG, CAR_MODELS } from './config.js';
-import { makeRng } from './random.js';
-import { collidesBuilding, clampToWorld, nearestRoadPoint } from './city.js';
+// Solmar Heat — cars: models, driving physics, stealing.
+// A car is a small physics body: heading, speed, steering that only bites
+// while moving, and a handbrake that trades grip for a slide.
+import { CAR } from './config.js';
+import { clamp, angleDiff, dist2 } from './random.js';
 
-let carId = 0;
+export const CAR_MODELS = [
+  { name: 'Coral Coupe', color: '#e74c3c', top: 560, accel: 460, len: 46, wid: 22 },
+  { name: 'Palm Sedan', color: '#3498db', top: 500, accel: 420, len: 48, wid: 23 },
+  { name: 'Harbor Taxi', color: '#f1c40f', top: 480, accel: 400, len: 48, wid: 23 },
+  { name: 'Dune Pickup', color: '#8e6e4a', top: 470, accel: 380, len: 52, wid: 24 },
+  { name: 'Neon Hatchback', color: '#9b59b6', top: 520, accel: 440, len: 42, wid: 21 },
+  { name: 'Marina Van', color: '#ecf0f1', top: 430, accel: 340, len: 54, wid: 25 },
+];
 
-export function makeCar(x, y, angle, modelIndex, opts) {
-  const model = CAR_MODELS[modelIndex % CAR_MODELS.length];
-  const o = opts || {};
-  return {
-    id: ++carId,
-    x, y, angle,
-    speed: 0,
-    model,
-    color: o.color || model.color,
-    police: !!o.police,
-    traffic: !!o.traffic,
-    parked: !!o.parked,
-    wrecked: false,
-    stolen: false,
-    health: 100,
-    driver: !!o.driver,
-  };
+export class Car {
+  constructor(id, model, x, y, angle) {
+    this.id = id;
+    this.model = model;
+    this.x = x;
+    this.y = y;
+    this.angle = angle;
+    this.speed = 0;
+    this.stolen = false;
+    this.driver = null; // 'player' | 'traffic' | 'police' | null
+    this.health = 100;
+    this.smoke = 0;
+  }
+
+  get length() { return this.model.len; }
+  get width() { return this.model.wid; }
+
+  update(dt, input, city) {
+    const steer = (input.x || 0);
+    const throttle = input.y || 0; // -1 forward, +1 brake/reverse
+    const handbrake = !!input.handbrake;
+    if (throttle < 0) this.speed += this.model.accel * dt;
+    else if (throttle > 0) {
+      if (this.speed > 8) this.speed -= CAR.brake * dt;
+      else this.speed -= CAR.reverseAccel * dt;
+    } else {
+      this.speed *= Math.pow(0.4, dt);
+      if (Math.abs(this.speed) < 4) this.speed = 0;
+    }
+    this.speed = clamp(this.speed, -CAR.maxReverse, this.model.top);
+    const grip = handbrake ? 0.55 : 1;
+    const turn = steer * CAR.turnRate * clamp(Math.abs(this.speed) / 180, 0, 1) * grip;
+    this.angle += turn * dt * (this.speed >= 0 ? 1 : -1);
+    const nx = this.x + Math.cos(this.angle) * this.speed * dt;
+    const ny = this.y + Math.sin(this.angle) * this.speed * dt;
+    if (city.collides(nx, ny, this.width / 2 + 2)) {
+      if (Math.abs(this.speed) > 240) this.health -= 6;
+      this.speed *= -0.25;
+    } else {
+      this.x = nx;
+      this.y = ny;
+    }
+    if (this.health < 45) this.smoke = Math.min(1, this.smoke + dt * 0.5);
+  }
+
+  // Nearest parked/traffic car within reach of a point, for the E key.
+  static nearest(cars, x, y, maxDist) {
+    let best = null;
+    let bestD = maxDist * maxDist;
+    for (const c of cars) {
+      const d = dist2(x, y, c.x, c.y);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return best;
+  }
 }
 
-export function spawnParkedCars(city, seed, count) {
-  const rng = makeRng(seed + 777);
-  const cars = [];
-  let tries = 0;
-  while (cars.length < count && tries < count * 40) {
-    tries++;
-    const x = rng.float(200, city.size - 200);
-    const y = rng.float(200, city.size - 200);
-    const road = nearestRoadPoint(city, x, y);
-    if (!road) continue;
-    const dx = road.x - x;
-    const dy = road.y - y;
-    if (dx * dx + dy * dy > 90 * 90) continue;
-    if (collidesBuilding(city, road.x, road.y, 30)) continue;
-    const angle = road.vertical
-      ? (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2)
-      : (rng.chance(0.5) ? 0 : Math.PI);
-    const ox = road.vertical ? (rng.chance(0.5) ? 14 : -14) : 0;
-    const oy = road.vertical ? 0 : (rng.chance(0.5) ? 14 : -14);
-    cars.push(makeCar(road.x + ox, road.y + oy, angle, rng.int(0, CAR_MODELS.length - 1), { parked: true }));
-  }
-  return cars;
-}
-
-export function updateDrivenCar(car, input, dt, city, audio) {
-  const axis = input.axis();
-  const forward = axis.y < 0;
-  const back = axis.y > 0;
-  const maxSpeed = CONFIG.carMaxSpeed * car.model.speed;
-  if (forward) car.speed += CONFIG.carAccel * dt;
-  else if (back) car.speed -= CONFIG.carAccel * 0.7 * dt;
-  else {
-    const drag = 260 * dt;
-    if (car.speed > drag) car.speed -= drag;
-    else if (car.speed < -drag) car.speed += drag;
-    else car.speed = 0;
-  }
-  if (input.down(' ')) {
-    car.speed -= Math.sign(car.speed) * CONFIG.carBrake * dt;
-    if (Math.abs(car.speed) < 30) car.speed = 0;
-  }
-  car.speed = Math.max(-CONFIG.carReverseMax, Math.min(maxSpeed, car.speed));
-  const grip = Math.min(1, Math.abs(car.speed) / 120 + 0.15);
-  const steer = axis.x * CONFIG.carTurn * dt * grip * (car.speed < 0 ? -1 : 1);
-  car.angle += steer;
-  const nx = car.x + Math.cos(car.angle) * car.speed * dt;
-  const ny = car.y + Math.sin(car.angle) * car.speed * dt;
-  if (collidesBuilding(city, nx, ny, 22)) {
-    car.speed *= -0.25;
-    // r10: clamp health at zero so a wrecked car never goes negative.
-    car.health = Math.max(0, car.health - 6);
-    if (audio) audio.crash();
-    if (car.health <= 0) car.wrecked = true;
-  } else {
-    car.x = nx;
-    car.y = ny;
-  }
-  const c = clampToWorld(car.x, car.y, 30);
-  car.x = c.x;
-  car.y = c.y;
-  if (audio) audio.setEngine(Math.abs(car.speed) / maxSpeed, true);
-  return car;
-}
-
-export function updateTrafficCar(car, dt, city, rng) {
-  if (car.wrecked || car.parked) return;
-  const aheadX = car.x + Math.cos(car.angle) * 90;
-  const aheadY = car.y + Math.sin(car.angle) * 90;
-  if (!city || collidesBuilding(city, aheadX, aheadY, 20)) {
-    car.angle += Math.PI / 2;
-    return;
-  }
-  car.speed = 150;
-  car.x += Math.cos(car.angle) * car.speed * dt;
-  car.y += Math.sin(car.angle) * car.speed * dt;
-  const c = clampToWorld(car.x, car.y, 30);
-  if (c.x !== car.x || c.y !== car.y) car.angle += Math.PI;
-  car.x = c.x;
-  car.y = c.y;
+export function angleLerp(a, b, t) {
+  return a + angleDiff(a, b) * t;
 }

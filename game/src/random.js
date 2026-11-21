@@ -1,9 +1,8 @@
-// Solmar Heat — random.js (r10)
-// Seeded randomness (mulberry32 + FNV-1a string hashing) so one seed
-// always builds the same city, the same parked cars, the same traffic
-// and the same pedestrians. Nothing in the game uses Math.random for
-// world layout, which is what makes the screenshots reproducible.
-// r10 keeps the shuffle helper on the same stream for spawn lists.
+// Solmar Heat — deterministic seeded randomness.
+// One fixed seed drives the whole city, traffic and pickups, so the same
+// seed always builds the same Solmar. Gameplay uses no Math.random anywhere;
+// the only exception is the white-noise buffer inside audio.js, which is
+// sound synthesis, not game state.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -16,7 +15,7 @@ export function mulberry32(seed) {
 }
 
 export function hashString(str) {
-  let h = 2166136261 >>> 0;
+  let h = 2166136261;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);
     h = Math.imul(h, 16777619);
@@ -24,32 +23,28 @@ export function hashString(str) {
   return h >>> 0;
 }
 
-// Small helper wrapper: int / float / pick / chance / shuffle on one stream.
 export function makeRng(seed) {
-  const next = mulberry32(typeof seed === 'string' ? hashString(seed) : seed);
+  const next = mulberry32(seed);
   return {
     next,
-    int(min, max) {
-      return min + Math.floor(next() * (max - min + 1));
-    },
-    float(min, max) {
-      return min + next() * (max - min);
-    },
-    pick(arr) {
-      return arr[Math.floor(next() * arr.length)];
-    },
-    chance(p) {
-      return next() < p;
-    },
-    shuffle(arr) {
-      const out = arr.slice();
-      for (let i = out.length - 1; i > 0; i--) {
-        const j = Math.floor(next() * (i + 1));
-        const tmp = out[i];
-        out[i] = out[j];
-        out[j] = tmp;
-      }
-      return out;
-    },
+    range(min, max) { return min + next() * (max - min); },
+    int(min, max) { return Math.floor(min + next() * (max - min + 1)); },
+    pick(list) { return list[Math.floor(next() * list.length)]; },
+    chance(p) { return next() < p; },
   };
+}
+
+export function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+export function lerp(a, b, t) { return a + (b - a) * t; }
+export function dist2(ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  return dx * dx + dy * dy;
+}
+export function angleTo(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
+export function angleDiff(a, b) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
 }

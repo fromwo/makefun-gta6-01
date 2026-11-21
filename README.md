@@ -4,52 +4,40 @@
 [![rank](https://make.fun/badge/gta6-01/fromwo/makefun-gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
 [![reward](https://make.fun/badge/gta6-01/fromwo/makefun-gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
 
-An original 2D open-world crime game set in **Solmar**, a sunny seaside city invented for this game — no real city, no real people, no borrowed art, music or names. Everything here is original: the map, the characters, the cars, the story and the sound.
-
-r10 is a full rewrite of the r9 game for the sealed recording: same content, rewritten by hand, with the bottom hint lifted clear of the HUD bar and the staged screenshot heats kept consistent with their star counts.
+An original 2D top-down open-world crime game, built for the [gta6-01 bounty](https://make.fun/bounty/gta6-01). No Rockstar content anywhere: Solmar is a made-up sun-soaked seaside city with its own districts, characters, cars and story.
 
 ## Play
 
 ```sh
 node serve.ts
+# open http://localhost:8080 in desktop Chrome
 ```
 
-Then open http://localhost:8080 in desktop Chrome. The game is pure static files under `game/` — no build step, no network requests, no external libraries. All sound is synthesized live with WebAudio, and the city is generated from a fixed seed, so every run starts from the same Solmar.
+No build step, no network requests: every script, image and sound is a file under `game/` or synthesized live with WebAudio.
 
-## Controls
+## The city
 
-- **WASD / arrows** — walk and drive (hold **Shift** to run on foot)
-- **E** — steal / enter a car, exit a car
-- **Space** — brake / handbrake
-- **Mouse** — aim, click or **F** — shoot
-- **1 / 2 / 3** — fists, pistol, SMG
-- **S** — save (localStorage), **P** — pause, **M** — mute, **T** — retry a failed job, **R** — restart after wasted / busted
+A fixed seed builds the same Solmar every run: a 9×9 block grid with nine named districts, a beach and open sea on the west edge, Central Park in the middle, and a working harbor in the east.
 
-## What's in the game
+## Systems
 
-- A procedural open world: nine districts, a beach and sea, a central park, a harbor, traffic cars and pedestrians on the streets
-- Driving and car theft — take any parked car and the police notice — with a wanted system (up to 5 stars) and patrol cars that chase and ram you
-- Three story jobs from three fixers: a delivery, a timed getaway, and a harbor showdown against a rival crew
-- Combat on foot with three weapons, a HUD with health, money, wanted stars and a live minimap, plus a start screen, pause screen, wasted / busted screens and save / load
-- Deterministic seeded screenshots: open `?shot=start|drive|mission|chase` for the four staged shots
+- **On foot & by car** — WASD/arrows to move and drive, Shift to run, Space to brake/handbrake.
+- **Steal cars** — press E near a car; getting caught by a witness raises your wanted level.
+- **Wanted system** — 5 stars from heat (`stars = ceil(heat / 25)`). Police cruisers chase, ram and bust you; hide to cool down.
+- **Missions & story** — three jobs: Rosa's delivery, Theo's timed escape, and the harbor shootout, plus cash pickups on the sidewalks.
+- **Combat** — fists, pistol and SMG (1/2/3), mouse aim, click/F to fire; harbor gunmen shoot back.
+- **HUD** — minimap, wanted stars, health, cash, weapon, speedometer while driving, mission tracker and objective markers.
+- **Save** — S saves to localStorage; the title screen offers Continue.
+- **Sound** — fully synthesized WebAudio: engine hum, police siren, gunshots, pickups, mission stingers. M mutes.
 
-## Files
+## Layout
 
-- `game/index.html` + `game/src/*.js` — the whole game, static files only
-- `main.ts` — the entry program: copies `game/` and `screenshots/` into the output directory and writes `dossier.json` with the kit's `buildDossier`
-- `screenshots/` — the four staged screenshots, rendered by the game itself
-- `serve.ts` — a tiny static file server for local play-testing
+- `game/index.html` — page, HUD and overlays
+- `game/src/` — one module per system: `config`, `random`, `city`, `audio`, `input`, `player`, `vehicles`, `traffic`, `police`, `missions`, `render`, `save`, `selftest`, `shots`, `main`
+- `main.ts` — copies `game/` and `screenshots/` to the output directory and writes `dossier.json`
+- `serve.ts` — static server for local playtesting
+- `shots.json` — maps each screenshot to its `?shot=` staging query
 
-## Submit
+## Screenshots
 
-```sh
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-```
-
-Two runs produce byte-identical output. Check it with the kit:
-
-```sh
-node /home/hatch/workspace/makefun/gta6-01-kit/cli/makefun.mjs check --repo /home/hatch/workspace/makefun/gta6-01 --worktree
-```
-
-[Bounty page](https://make.fun/bounty/gta6-01)
+Staged deterministically with `?shot=start|drive|mission|chase` (see `game/src/shots.js`).

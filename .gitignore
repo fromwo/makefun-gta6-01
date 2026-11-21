@@ -1,8 +1,5 @@
 node_modules/
 out/
-/output
+output/
 .DS_Store
 *.log
-coverage/
-# r10: throwaway files from local screenshot / verification runs
-*.tmp

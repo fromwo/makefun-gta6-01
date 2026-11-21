@@ -1,84 +1,113 @@
-// Solmar Heat — police.js (r10)
-// The wanted system in action: one patrol car per wanted star (up to
-// four) spawns off-screen and chases the player, ramming their car or
-// running them down on foot. Get close to a cop on foot with two or
-// more stars and you get busted.
-import { CONFIG } from './config.js';
-import { makeCar } from './vehicles.js';
-import { addWanted } from './player.js';
+// Solmar Heat — the wanted system and the Solmar police.
+// Heat (0-100) cools down when the player hides; stars are always
+// ceil(heat/25). Police cruisers spawn at the map edge, chase, ram, and
+// bust the player if they catch them slow and close.
+import { WANTED, starsFromHeat } from './config.js';
+import { clamp, angleTo, angleDiff, dist2 } from './random.js';
+import { CAR_MODELS } from './vehicles.js';
 
-export function wantedCarCount(wanted) {
-  return Math.min(4, wanted);
-}
+export class Police {
+  constructor(city) {
+    this.city = city;
+    this.cruisers = [];
+    this.spawnTimer = 0;
+    this.bustTimer = 0;
+    this.busted = false;
+  }
 
-export function spawnPoliceCar(player, index) {
-  const angle = (index / 4) * Math.PI * 2 + 0.7;
-  const dist = 700;
-  const sx = player.x + Math.cos(angle) * dist;
-  const sy = player.y + Math.sin(angle) * dist;
-  const face = Math.atan2(player.y - sy, player.x - sx);
-  return makeCar(sx, sy, face, 1, { police: true, color: CONFIG.colors.police, driver: true });
-}
+  get stars() { return 0; } // stars are derived from the player's heat, not stored here
 
-function angleDiff(target, current) {
-  let diff = target - current;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  return diff;
-}
+  wantedCount(player) {
+    return Math.min(1 + starsFromHeat(player.heat), 6);
+  }
 
-export function updatePoliceCars(cops, player, dt, city) {
-  const px = player.inCar ? player.inCar.x : player.x;
-  const py = player.inCar ? player.inCar.y : player.y;
-  for (const cop of cops) {
-    if (cop.wrecked) continue;
-    const dx = px - cop.x;
-    const dy = py - cop.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    const wantAngle = Math.atan2(dy, dx);
-    const turn = Math.max(-2.4 * dt, Math.min(2.4 * dt, angleDiff(wantAngle, cop.angle)));
-    cop.angle += turn;
-    const topSpeed = 300 + player.wanted * 45;
-    cop.speed = Math.min(topSpeed, 240 + dist * 0.35);
-    cop.x += Math.cos(cop.angle) * cop.speed * dt;
-    cop.y += Math.sin(cop.angle) * cop.speed * dt;
-    if (dist < 55) {
-      if (player.inCar) {
-        // r10: clamp at zero; the wreck flag is what ends the car.
-        player.inCar.health = Math.max(0, player.inCar.health - 14 * dt);
-        if (player.inCar.health <= 0) player.inCar.wrecked = true;
-      } else {
-        player.health = Math.max(0, player.health - 10 * dt);
+  update(dt, player, traffic) {
+    if (player.dead) return;
+    const stars = starsFromHeat(player.heat);
+    // Heat cools when the player is out of sight; faster while hidden.
+    const cooling = player.hidden ? WANTED.hideCoolRate : WANTED.coolRate;
+    if (stars > 0) {
+      const nearestCop = this.cruisers.reduce((m, c) => Math.min(m, Math.sqrt(dist2(c.x, c.y, player.x, player.y))), Infinity);
+      if (nearestCop > 420) player.heat = clamp(player.heat - cooling * dt, 0, WANTED.maxHeat);
+    }
+    // Spawn cruisers up to the wanted count.
+    this.spawnTimer -= dt;
+    const want = stars > 0 ? this.wantedCount(player) : 0;
+    if (this.cruisers.length < want && this.spawnTimer <= 0) {
+      this.spawnTimer = 1.6;
+      const spots = [
+        { x: player.x + 700, y: player.y }, { x: player.x - 700, y: player.y },
+        { x: player.x, y: player.y + 700 }, { x: player.x, y: player.y - 700 },
+      ];
+      const s = spots[this.cruisers.length % spots.length];
+      const sx = clamp(s.x, 40, 2840);
+      const sy = clamp(s.y, 40, 2840);
+      const cruiser = {
+        x: sx, y: sy, angle: angleTo(sx, sy, player.x, player.y),
+        speed: 0, top: 430 + stars * 28, color: '#1c2733', sirenPhase: 0,
+        width: 48, length: 24, ramTimer: 0,
+      };
+      this.cruisers.push(cruiser);
+    }
+    // Trim cruisers when the heat is gone.
+    if (stars === 0 && this.cruisers.length > 0) {
+      this.cruisers = this.cruisers.filter((c) => Math.sqrt(dist2(c.x, c.y, player.x, player.y)) < 900);
+      if (this.cruisers.length > 0) {
+        // Drive the leftovers off: they cruise away and despawn at range.
+        for (const c of this.cruisers) {
+          c.speed = 200;
+          c.angle += angleDiff(c.angle, angleTo(c.x, c.y, 1440, 1440)) * dt * 0.5;
+          c.x += Math.cos(c.angle) * c.speed * dt;
+          c.y += Math.sin(c.angle) * c.speed * dt;
+        }
+        this.cruisers = this.cruisers.filter((c) => Math.sqrt(dist2(c.x, c.y, player.x, player.y)) < 1200);
+        return;
       }
     }
+    // Chase: steer toward the player, ram on contact, bust when slow + close.
+    for (const c of this.cruisers) {
+      c.sirenPhase += dt * 6;
+      c.ramTimer = Math.max(0, (c.ramTimer || 0) - dt);
+      const target = angleTo(c.x, c.y, player.x, player.y);
+      const turn = clamp(angleDiff(c.angle, target), -2.4 * dt, 2.4 * dt);
+      c.angle += turn;
+      c.speed = clamp(c.speed + 300 * dt, 0, c.top);
+      const nx = c.x + Math.cos(c.angle) * c.speed * dt;
+      const ny = c.y + Math.sin(c.angle) * c.speed * dt;
+      if (!this.city.collides(nx, ny, 16)) { c.x = nx; c.y = ny; }
+      else { c.angle += 0.6; c.speed *= 0.6; }
+      const d = Math.sqrt(dist2(c.x, c.y, player.x, player.y));
+      if (d < 46) {
+        // A ram lands at most once per cruiser per 0.8s: without the
+        // cooldown the per-frame hit collapsed the player's speed to zero.
+        if (c.ramTimer <= 0) {
+          c.ramTimer = 0.8;
+          if (player.driving) {
+            player.car.speed *= 0.55;
+            player.car.health = Math.max(0, player.car.health - 4);
+          }
+        }
+        if (!player.driving) player.takeDamage(8 * dt * 10);
+        if (!player.driving && player.speed < 40 && d < 40) {
+          this.bustTimer += dt;
+          if (this.bustTimer > 1.6) {
+            this.busted = true;
+            this.bustTimer = 0;
+          }
+        } else {
+          this.bustTimer = Math.max(0, this.bustTimer - dt);
+        }
+      }
+    }
+    void traffic;
+  }
+
+  reset() {
+    this.cruisers = [];
+    this.spawnTimer = 0;
+    this.bustTimer = 0;
+    this.busted = false;
   }
 }
 
-export function ensurePolice(state, dt) {
-  const want = wantedCarCount(state.player.wanted);
-  while (state.policeCars.length < want) {
-    state.policeCars.push(spawnPoliceCar(state.player, state.policeCars.length));
-  }
-  // r10: drop wrecked patrol cars first when the wanted level falls,
-  // so a live pursuit is not the one that vanishes.
-  while (state.policeCars.length > want) {
-    const wreckedAt = state.policeCars.findIndex((c) => c.wrecked);
-    if (wreckedAt >= 0) state.policeCars.splice(wreckedAt, 1);
-    else state.policeCars.pop();
-  }
-}
-
-export function checkBusted(state) {
-  const p = state.player;
-  if (p.inCar) return false;
-  if (p.wanted < 2) return false;
-  for (const cop of state.policeCars) {
-    if (cop.wrecked) continue;
-    if (Math.hypot(cop.x - p.x, cop.y - p.y) < 46) return true;
-  }
-  return false;
-}
-
-export function commitCrime(state, amount) {
-  addWanted(state.player, amount);
-}
+export { CAR_MODELS };

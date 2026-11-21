@@ -1,27 +1,24 @@
-// Solmar Heat — save.js (r10)
-// localStorage save / load: money, health, position, wanted level,
-// mission progress, completed jobs and the selected weapon. The save
-// is versioned, so a save from an older build can never crash a load —
-// it is simply ignored. savedAt is always 0 so saves stay identical.
-const KEY = 'solmar-heat-save-v1';
+// Solmar Heat — save and load through localStorage (key S).
+// A save holds the player's position, cash, health, mission progress and
+// wanted heat; the city itself is rebuilt from the fixed seed.
+const SAVE_KEY = 'solmar-heat-save-v1';
 
 export function saveGame(state) {
   try {
-    const p = state.player;
     const data = {
       version: 1,
-      money: p.money,
-      health: p.health,
-      x: p.x,
-      y: p.y,
-      wanted: p.wanted,
-      wantedHeat: p.wantedHeat,
+      x: Math.round(state.player.x),
+      y: Math.round(state.player.y),
+      health: state.player.health,
+      cash: state.player.cash,
+      weapon: state.player.weapon,
+      heat: state.player.heat,
       missionIndex: state.missions.index,
       completed: state.missions.completed,
-      weaponIndex: p.weaponIndex,
-      savedAt: 0,
+      pickupsTaken: state.missions.pickups.filter((p) => p.taken).map((p) => p.id),
+      playSeconds: Math.round(state.playSeconds),
     };
-    localStorage.setItem(KEY, JSON.stringify(data));
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
   } catch (e) {
     return false;
@@ -30,7 +27,7 @@ export function saveGame(state) {
 
 export function loadGame() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || data.version !== 1) return null;
@@ -41,37 +38,9 @@ export function loadGame() {
 }
 
 export function hasSave() {
-  try {
-    return !!localStorage.getItem(KEY);
-  } catch (e) {
-    return false;
-  }
-}
-
-export function applySave(state, data) {
-  if (!data) return false;
-  const p = state.player;
-  p.money = data.money;
-  p.health = data.health;
-  p.x = data.x;
-  p.y = data.y;
-  p.wanted = data.wanted || 0;
-  p.wantedHeat = data.wantedHeat || 0;
-  // r10: a hand-edited save with a wild weapon index falls back to the
-  // pistol instead of breaking the HUD weapon lookup.
-  p.weaponIndex = (data.weaponIndex >= 0 && data.weaponIndex <= 2) ? data.weaponIndex : 1;
-  state.missions.index = data.missionIndex || 0;
-  state.missions.completed = Array.isArray(data.completed) ? data.completed : [];
-  state.missions.stage = 'idle';
-  state.camera.x = p.x;
-  state.camera.y = p.y;
-  return true;
+  return loadGame() !== null;
 }
 
 export function clearSave() {
-  try {
-    localStorage.removeItem(KEY);
-  } catch (e) {
-    // storage unavailable — nothing to clear
-  }
+  try { window.localStorage.removeItem(SAVE_KEY); } catch (e) { /* storage unavailable */ }
 }
