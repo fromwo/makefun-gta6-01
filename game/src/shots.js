@@ -1,69 +1,43 @@
-// Solmar Heat — ?shot= staging for screenshots. Each preset builds one
-// readable scene from the real game systems (no special render path).
-import { VEHICLE_MODELS } from "./config.js";
-import { createVehicle } from "./vehicles.js";
+// Screenshot scenes behind ?shot=start|drive|mission|chase (with &seed=N).
+// Each stages a real game state — a fresh world advanced with the real rules
+// and a simple autopilot — then the page paints it and sets window.__shotReady.
+// The first screenshot by name is the cover, so start is the title screen.
+import { SCREEN_TITLE, SCREEN_PLAY } from './render.js';
+import { startMission } from './missions.js';
+import { addWanted } from './police.js';
+import { STEP } from './config.js';
 
-function putPlayerInCar(game, modelIndex, x, y, angle, speed) {
-  const model = VEHICLE_MODELS[modelIndex];
-  const car = createVehicle(model, x, y, angle);
-  car.speed = speed;
-  game.player.car = car;
-  game.player.onFoot = false;
-  game.player.x = x;
-  game.player.y = y;
-  game.player.angle = angle;
-  game.player.speed = Math.abs(speed);
-  game.camera.x = x;
-  game.camera.y = y;
-  return car;
+function driveForward(state, seconds, steer) {
+  const input = { moveX: () => steer || 0, moveY: () => -1, running: () => false, takeClick: () => false, mouse: () => ({ x: 0, y: 0 }) };
+  for (let i = 0; i < seconds / STEP; i += 1) state.step(STEP, input, {});
 }
 
-export function applyShotPreset(game) {
-  const params = new URLSearchParams(window.location.search);
-  const shot = params.get("shot") ?? "";
-  if (!shot) return null;
-  if (shot === "start") {
-    game.showMenu();
-    game.camera.x = 1400;
-    game.camera.y = 1400;
-    return "start";
+export function stageShot(name, state) {
+  state.reset();
+  if (name === 'start') {
+    for (let i = 0; i < 4 / STEP; i += 1) state.stepAmbient(STEP);
+    return { screen: SCREEN_TITLE, started: false };
   }
-  game.startGame(false);
-  if (shot === "drive") {
-    putPlayerInCar(game, 4, 900, 1400, 0, 380);
-    const taxi = createVehicle(VEHICLE_MODELS[1], 1250, 1000, Math.PI / 2);
-    taxi.speed = 150;
-    game.traffic.cars.push(taxi);
-    const coupe = createVehicle(VEHICLE_MODELS[2], 700, 1000, Math.PI / 2);
-    coupe.speed = 170;
-    game.traffic.cars.push(coupe);
-    return "drive";
+  // Get the player into a car first: walk to the nearest parked car and steal it.
+  const parked = state.city.parked[0];
+  state.player.x = parked.x + 40; state.player.y = parked.y;
+  state.stealCar();
+  if (name === 'drive') {
+    driveForward(state, 6, 0);
+    state.player.inCar.x = 1200; state.player.inCar.y = 640; state.player.inCar.angle = 0;
+    driveForward(state, 2.5, 0);
+    return { screen: SCREEN_PLAY, started: true };
   }
-  if (shot === "mission") {
-    putPlayerInCar(game, 2, 500, 2600, 0, 150);
-    const def = game.missions.defs[1];
-    game.missions.startMission(def, game);
-    game.camera.x = 500;
-    game.camera.y = 2600;
-    return "mission";
+  if (name === 'mission') {
+    startMission(state.missions, state.player);
+    state.player.inCar.x = 720; state.player.inCar.y = 1300; state.player.inCar.angle = Math.PI / 2;
+    driveForward(state, 1.0, 0);
+    return { screen: SCREEN_PLAY, started: true };
   }
-  if (shot === "chase") {
-    putPlayerInCar(game, 4, 1100, 1800, 0, 420);
-    game.police.setWanted(3);
-    // Patrol cars join the chase from behind on the same road, so the
-    // player stays visible ahead of them instead of piling up.
-    const behind = [400, 550, 700];
-    for (let i = 0; i < 3; i++) {
-      game.police.spawnPoliceCar(game.player);
-      const car = game.police.cars[game.police.cars.length - 1];
-      car.x = game.player.x - behind[i];
-      car.y = game.player.y + (i === 2 ? 30 : 0);
-      car.angle = 0;
-      car.speed = 400;
-    }
-    game.camera.x = 1100;
-    game.camera.y = 1800;
-    return "chase";
-  }
-  return null;
+  // chase: three stars, police on the tail, driving downtown.
+  addWanted(state.police, 3);
+  state.player.inCar.x = 1680; state.player.inCar.y = 1060; state.player.inCar.angle = 0;
+  driveForward(state, 2.2, 0);
+  for (let i = 0; i < 1.2 / STEP; i += 1) state.stepPoliceOnly(STEP);
+  return { screen: SCREEN_PLAY, started: true };
 }

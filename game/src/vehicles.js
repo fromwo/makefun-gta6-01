@@ -1,79 +1,78 @@
-// Solmar Heat — vehicles: arcade driving physics, collisions, parked cars.
-import { WORLD } from "./config.js";
-import { clamp, distance } from "./random.js";
-import { collideCircleWithBuildings, pointInBuilding } from "./city.js";
+// Vehicles: traffic that follows the road grid, parked cars to steal, and the
+// player's driven car. Traffic cars keep a lane on one road, slow for the car
+// ahead, and wrap around the city edge. Every parked car carries a waypoint.
+import { WORLD, ROADS_X, ROADS_Y, CAR, PALETTE } from './config.js';
 
-let nextVehicleId = 1;
-
-export function createVehicle(model, x, y, angle = 0) {
-  return {
-    id: nextVehicleId++,
-    model,
-    x, y, angle,
-    speed: 0,
-    color: model.color,
-    parked: false,
-    police: model.kind === "police",
-    siren: false,
-    skid: 0,
-    crashed: 0,
-  };
-}
-
-export function driveVehicle(vehicle, steer, throttle, brake, dt, city) {
-  const m = vehicle.model;
-  const forward = { x: Math.cos(vehicle.angle), y: Math.sin(vehicle.angle) };
-  const accel = throttle * m.accel - brake * m.accel * 1.6;
-  vehicle.speed = clamp(vehicle.speed + accel * dt, -m.topSpeed * 0.45, m.topSpeed);
-  if (throttle === 0 && brake === 0) {
-    vehicle.speed *= Math.max(0, 1 - 1.4 * dt);
-    if (Math.abs(vehicle.speed) < 4) vehicle.speed = 0;
+export function createTraffic(rng, count) {
+  const cars = [];
+  for (let i = 0; i < count; i += 1) {
+    const vertical = rng.next() < 0.5;
+    const road = vertical ? rng.pick(ROADS_X) : rng.pick(ROADS_Y);
+    const dir = rng.next() < 0.5 ? 1 : -1;
+    const lane = 22;
+    cars.push({
+      vertical, road, dir, lane,
+      pos: rng.range(80, (vertical ? WORLD.height : WORLD.width) - 80),
+      speed: rng.range(120, 210), baseSpeed: 0,
+      color: PALETTE.traffic[rng.int(0, PALETTE.traffic.length - 1)],
+      angle: vertical ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI),
+      stopped: 0,
+    });
+    cars[i].baseSpeed = cars[i].speed;
   }
-  const speedFactor = clamp(Math.abs(vehicle.speed) / 220, 0, 1);
-  vehicle.angle += steer * m.grip * speedFactor * dt * Math.sign(vehicle.speed || 1);
-  const nx = vehicle.x + forward.x * vehicle.speed * dt;
-  const ny = vehicle.y + forward.y * vehicle.speed * dt;
-  const hit = pointInBuilding(city, nx, ny);
-  if (hit) {
-    vehicle.speed *= -0.25;
-    vehicle.crashed = 0.4;
-    const pushed = collideCircleWithBuildings(city, vehicle.x, vehicle.y, m.length * 0.42);
-    vehicle.x = pushed.x;
-    vehicle.y = pushed.y;
-  } else {
-    vehicle.x = clamp(nx, 24, WORLD.size - 24);
-    vehicle.y = clamp(ny, 24, WORLD.size - 24);
-  }
-  vehicle.skid = Math.abs(steer) > 0.7 && Math.abs(vehicle.speed) > 240 ? 1 : 0;
-  if (vehicle.crashed > 0) vehicle.crashed -= dt;
+  return cars;
 }
 
-export function carsOverlap(a, b) {
-  const d = distance(a.x, a.y, b.x, b.y);
-  const min = (a.model.length + b.model.length) * 0.32;
-  if (d >= min || d < 0.01) return false;
-  const push = (min - d) / 2;
-  const ux = (b.x - a.x) / d;
-  const uy = (b.y - a.y) / d;
-  a.x -= ux * push;
-  a.y -= uy * push;
-  b.x += ux * push;
-  b.y += uy * push;
-  const swap = a.speed;
-  a.speed = b.speed * 0.4;
-  b.speed = swap * 0.4;
-  return true;
+export function trafficPosition(car) {
+  if (car.vertical) return { x: car.road + car.dir * car.lane, y: car.pos };
+  return { x: car.pos, y: car.road + car.dir * car.lane };
 }
 
-export function nearestVehicle(vehicles, x, y, maxDist) {
-  let best = null;
-  let bestD = maxDist;
-  for (const v of vehicles) {
-    const d = distance(x, y, v.x, v.y);
-    if (d < bestD) {
-      bestD = d;
-      best = v;
+export function stepTraffic(cars, dt) {
+  for (const car of cars) {
+    let speed = car.baseSpeed;
+    // Slow for the car ahead on the same road and lane.
+    for (const other of cars) {
+      if (other === car || other.vertical !== car.vertical || other.road !== car.road || other.dir !== car.dir) continue;
+      const gap = (other.pos - car.pos) * car.dir;
+      if (gap > 0 && gap < 90) { speed = Math.min(speed, Math.max(0, (gap - 55) * 2)); break; }
     }
+    car.pos += car.dir * speed * dt;
+    const limit = car.vertical ? WORLD.height : WORLD.width;
+    if (car.pos > limit - 40) car.pos = 40;
+    if (car.pos < 40) car.pos = limit - 40;
   }
-  return best;
+}
+
+export function createPlayerCar(x, y, angle, color) {
+  return { x, y, angle, speed: 0, color: color || '#d64545', driven: false, id: Math.random().toString(36).slice(2, 8) };
+}
+
+// Arcade car physics: accelerate, brake/reverse, steer by speed, light drag.
+export function stepPlayerCar(car, input, dt) {
+  const fwd = input.moveY() < 0;
+  const back = input.moveY() > 0;
+  if (fwd) car.speed += CAR.accel * dt;
+  else if (back) car.speed -= (car.speed > 0 ? CAR.brake : CAR.reverse) * dt;
+  else car.speed *= Math.pow(0.4, dt);
+  if (car.speed > CAR.maxSpeed) car.speed = CAR.maxSpeed;
+  if (car.speed < -CAR.maxReverse) car.speed = -CAR.maxReverse;
+  const steer = input.moveX();
+  car.angle += steer * CAR.turn * dt * Math.min(1, Math.abs(car.speed) / 120) * Math.sign(car.speed || 1);
+  car.x += Math.cos(car.angle) * car.speed * dt;
+  car.y += Math.sin(car.angle) * car.speed * dt;
+  car.x = Math.max(30, Math.min(WORLD.width - 30, car.x));
+  car.y = Math.max(30, Math.min(WORLD.height - 30, car.y));
+  return Math.abs(car.speed);
+}
+
+export function carCorners(car) {
+  const c = Math.cos(car.angle), s = Math.sin(car.angle);
+  const hl = CAR.length / 2, hw = CAR.width / 2;
+  return [
+    { x: car.x + c * hl - s * hw, y: car.y + s * hl + c * hw },
+    { x: car.x + c * hl + s * hw, y: car.y + s * hl - c * hw },
+    { x: car.x - c * hl + s * hw, y: car.y - s * hl - c * hw },
+    { x: car.x - c * hl - s * hw, y: car.y - s * hl + c * hw },
+  ];
 }

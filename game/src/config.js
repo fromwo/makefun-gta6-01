@@ -1,116 +1,47 @@
-// Solmar Heat — tuning, palette, vehicles, story. One clear job: constants.
-export const WORLD = {
-  size: 3200,
-  roadGap: 400,
-  roadWidth: 96,
-  firstRoad: 200,
-  beachY: 2960,
-  seaY: 3080,
-};
+// Solmar Heat — every tuning number, colour and place name in one place.
+// Costa Solmar is a fictional sun-soaked coastal city. Nothing here is from
+// any commercial game: all names, people and places are invented for this game.
+export const WORLD = { width: 3200, height: 2400 };
+export const STEP = 1 / 60;
+export const SAVE_KEY = 'solmar-heat.save.v1';
+
+// Road centrelines. Roads are 96 px wide; every building sits inside a block
+// between roads, never on a road and never covering an intersection.
+export const ROADS_X = [240, 720, 1200, 1680, 2160, 2640, 2960];
+export const ROADS_Y = [220, 640, 1060, 1480, 1900, 2180];
+export const ROAD_W = 96;
+
+export const PLAYER = { radius: 13, walk: 205, run: 320, health: 100, punchDamage: 12, punchRange: 46, punchCooldown: 0.45 };
+export const CAR = { length: 58, width: 30, accel: 420, brake: 620, reverse: 190, maxSpeed: 560, maxReverse: 170, turn: 2.6, grip: 3.2 };
+export const POLICE = { maxSpeed: 520, accel: 380, contactDamage: 9, contactCooldown: 1.1, ramRange: 44 };
+export const WANTED = { decaySeconds: 26, maxStars: 5 };
 
 export const PALETTE = {
-  grass: "#7fae62",
-  grassDark: "#74a258",
-  asphalt: "#3a3d44",
-  asphaltLight: "#464a53",
-  sidewalk: "#b9b3a4",
-  lane: "#e8d44d",
-  sand: "#e8d49a",
-  sea: "#2e7fb8",
-  seaDeep: "#1f5f92",
-  buildingRoof: ["#c96f4a", "#5d7fa3", "#8a6fb0", "#b0a06f", "#6fa38a", "#a35d6f"],
-  buildingEdge: "#2c2c34",
-  park: "#5d9b4a",
-  plaza: "#c9c2b2",
+  grass: '#7fae5a', grassDry: '#a8b96a', sand: '#e8d29a', water: '#2f7fb8', waterDeep: '#1f5f92',
+  road: '#3a3f46', roadLine: '#d8c25a', sidewalk: '#9aa0a8', curb: '#6e747c',
+  buildingA: '#c98d5f', buildingB: '#8fa8bf', buildingC: '#b7a06a', buildingD: '#7d9b7a',
+  roofA: '#8a5a3b', roofB: '#5d7a94', roofC: '#8a7440', roofD: '#55704e',
+  park: '#5d8f4a', plaza: '#b9b3a4', player: '#ffcf3f', police: '#2b6fd6', policeLight: '#ff3b30',
+  traffic: ['#d64545', '#3f7fd6', '#e8e8e8', '#f2b13c', '#7a4fd0', '#3fae7a', '#222831', '#c96a2e'],
+  hudPanel: 'rgba(12,16,22,0.72)', hudText: '#f2f5f7', hudMuted: '#aab4bd',
+  star: '#ffd23f', starEmpty: '#5a636d', health: '#4fd66a', ammo: '#f2c94c',
+  marker: '#ffd23f', markerEnemy: '#ff4d4d', markerJob: '#4fd6ff',
 };
+export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-export const VEHICLE_MODELS = [
-  { name: "Palm Runner", kind: "sedan", color: "#d84a4a", topSpeed: 430, accel: 300, grip: 2.6, length: 52, width: 26 },
-  { name: "Solmar Taxi", kind: "taxi", color: "#e8b73a", topSpeed: 400, accel: 280, grip: 2.5, length: 52, width: 26 },
-  { name: "Bay Cruiser", kind: "coupe", color: "#3a7bd5", topSpeed: 470, accel: 330, grip: 2.9, length: 50, width: 25 },
-  { name: "Dune Buggy", kind: "buggy", color: "#7bc043", topSpeed: 410, accel: 310, grip: 2.4, length: 48, width: 27 },
-  { name: "Heat GT", kind: "sport", color: "#e84a9a", topSpeed: 540, accel: 380, grip: 3.2, length: 54, width: 26 },
-  { name: "Harbor Hauler", kind: "truck", color: "#8a8f98", topSpeed: 350, accel: 230, grip: 2.1, length: 66, width: 30 },
-  { name: "Sunset Van", kind: "van", color: "#f2ede0", topSpeed: 370, accel: 240, grip: 2.2, length: 60, width: 28 },
-  { name: "Patrol Interceptor", kind: "police", color: "#22262e", topSpeed: 520, accel: 360, grip: 3.1, length: 54, width: 27 },
-];
-
-export const PED_COLORS = ["#e8b73a", "#3a7bd5", "#d84a4a", "#7bc043", "#e84a9a", "#f2ede0", "#8a6fb0", "#5d7fa3"];
-
-export const MISSIONS = [
-  {
-    id: "m1",
-    title: "First Wheels",
-    giver: "Mara Voss",
-    briefing: "Mara needs wheels. Borrow the red Palm Runner parked by the plaza — don't ask whose it is — and bring it to her garage on Harbor Row.",
-    reward: 250,
-    steps: [
-      { kind: "steal", text: "Steal the marked Palm Runner (walk up and press E)", target: { x: 1000, y: 1000 }, radius: 90 },
-      { kind: "drive", text: "Drive it to Mara's garage on Harbor Row", target: { x: 2600, y: 2600 }, radius: 110 },
-    ],
-  },
-  {
-    id: "m2",
-    title: "Harbor Run",
-    giver: "Mara Voss",
-    briefing: "A crate at the docks needs to reach the casino — fast, and quiet. The harbor patrol is jumpy tonight. Grab the crate, then lose anyone who follows.",
-    reward: 450,
-    steps: [
-      { kind: "goto", text: "Pick up the crate at the harbor docks", target: { x: 300, y: 2600 }, radius: 100 },
-      { kind: "deliver", text: "Deliver the crate to the Palms Casino", target: { x: 2200, y: 600 }, radius: 110 },
-    ],
-  },
-  {
-    id: "m3",
-    title: "Boardwalk Brawl",
-    giver: "Mara Voss",
-    briefing: "The Tide Rats jumped one of our couriers on the boardwalk. Teach them a lesson — fists or the pistol, your call — then get out before the patrol arrives.",
-    reward: 600,
-    steps: [
-      { kind: "fight", text: "Deal with the Tide Rats on the boardwalk (3 of them)", target: { x: 1600, y: 2900 }, radius: 200, count: 3 },
-      { kind: "escape", text: "Slip away — get clear of the boardwalk", target: { x: 1600, y: 2200 }, radius: 130 },
-    ],
-  },
-  {
-    id: "m4",
-    title: "The Big Score",
-    giver: "Mara Voss",
-    briefing: "One last job: lift the casino's cash van from the garage on Palm Avenue and bring it to the old lighthouse. The whole city will be watching — drive like it.",
-    reward: 1200,
-    steps: [
-      { kind: "steal", text: "Steal the Sunset Van from the casino garage", target: { x: 2200, y: 600 }, radius: 100 },
-      { kind: "drive", text: "Bring the van to the old lighthouse — police will chase", target: { x: 300, y: 300 }, radius: 120 },
-    ],
-  },
-];
-
-export const TUNING = {
-  walkSpeed: 210,
-  runMultiplier: 1.5,
-  playerRadius: 14,
-  playerHealth: 100,
-  pistolAmmo: 12,
-  pistolDamage: 34,
-  punchDamage: 25,
-  punchRange: 46,
-  punchCooldown: 0.45,
-  shootCooldown: 0.28,
-  shootRange: 420,
-  trafficCars: 14,
-  pedestrians: 26,
-  wantedDecaySeconds: 26,
-  policeCarCap: 5,
-  copCap: 4,
-  bustedFine: 150,
-  saveKey: "solmar-heat-save-v1",
-};
-
+// Landmarks live inside blocks, clear of every road and intersection.
 export const LANDMARKS = [
-  { name: "Palms Casino", x: 2200, y: 600 },
-  { name: "Solmar Tower", x: 1400, y: 1400 },
-  { name: "Harbor Docks", x: 300, y: 2600 },
-  { name: "Old Lighthouse", x: 300, y: 300 },
-  { name: "Mara's Garage", x: 2600, y: 2600 },
-  { name: "Boardwalk", x: 1600, y: 2900 },
-  { name: "Sunset Plaza", x: 1000, y: 1000 },
+  { name: 'Solmar Tower', x: 1560, y: 940, w: 150, h: 110, kind: 'tower' },
+  { name: 'Marina Bay', x: 300, y: 1960, w: 260, h: 120, kind: 'marina' },
+  { name: 'Harbor Market', x: 2500, y: 1300, w: 220, h: 130, kind: 'market' },
+  { name: 'Palma Stadium', x: 900, y: 300, w: 240, h: 140, kind: 'stadium' },
+  { name: 'Old Town Plaza', x: 1900, y: 700, w: 180, h: 120, kind: 'plaza' },
+  { name: 'Sunset Garage', x: 700, y: 1560, w: 170, h: 110, kind: 'garage' },
+  { name: 'Café Lumen', x: 2300, y: 500, w: 130, h: 90, kind: 'cafe' },
+  { name: 'North Park', x: 1300, y: 300, w: 260, h: 130, kind: 'park' },
+];
+export const DISTRICTS = [
+  { name: 'Old Town', x: 1680, y: 640 }, { name: 'Marina Bay', x: 480, y: 2050 },
+  { name: 'Harbor East', x: 2600, y: 1480 }, { name: 'Palma North', x: 960, y: 420 },
+  { name: 'Sunset Hills', x: 950, y: 1780 }, { name: 'Downtown', x: 1440, y: 1240 },
 ];

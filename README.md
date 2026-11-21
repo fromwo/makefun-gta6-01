@@ -1,37 +1,38 @@
-# Solmar Heat
+# Solmar Heat — Costa Solmar open-world crime game
 
-[![Make GTA 6](https://make.fun/badge/gta6-01.svg)](https://make.fun/c/gta6-01)
-[![Rank](https://make.fun/badge/gta6-01/fromwo/makefun-gta6-01/rank.svg)](https://make.fun/c/gta6-01)
-[![Reward](https://make.fun/badge/gta6-01/fromwo/makefun-gta6-01/reward.svg)](https://make.fun/c/gta6-01)
+[![gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/fromwo/makefun-gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
+[![reward](https://make.fun/badge/gta6-01/fromwo/makefun-gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
 
-**Solmar Heat** is an original open-world crime game built for the make.fun **"Make GTA 6"** bounty ($1,666 USDC in prizes). It plays entirely offline in a desktop browser — no network requests, no build step, no downloads.
+An original 2D top-down open-world crime game in the spirit of GTA 6, built for the [gta6-01 bounty](https://make.fun/bounty/gta6-01). Referral: `g1xs8c58`.
 
 ## The game
 
-Sun, sea and bad decisions. You are **Leo Cruz**, fresh out of the Sunset Clinic with empty pockets and a fast mouth. **Mara Voss** runs the jobs in Solmar: steal the cars, run the crates, settle the score with the Tide Rats, and pull off the Big Score at the Palms Casino.
+You are a newcomer in **Costa Solmar**, a sun-soaked fictional coastal city. Work for **Mara Voss**, steal cars, run courier jobs, dodge the Solmar police, and build your crew's legend — all in an original city with original characters, names, art and music. Nothing here is from any commercial game.
 
-- **A city to explore** — the sun-soaked coastal city of Solmar: grid streets, traffic, pedestrians, parks, a boardwalk, a harbor and a beach, all drawn fresh for this game.
-- **On foot and by car** — walk the sidewalks or steal any car on the street (press `E`) and drive it, with arcade handling, nitro boost and crash physics.
-- **Wanted system & police** — steal, fight or shoot and the stars climb; Solmar PD interceptors and foot cops chase, ram and try to bust you. Lay low and the heat fades.
-- **Missions & story** — four story jobs from Mara Voss, plus courier side gigs that pay $120 a run.
-- **Combat** — fists (`F`) and a pistol (mouse click) against rival gang members and the police.
-- **HUD with minimap** — wanted stars, cash, health, ammo, speed, live objective text and a minimap with the mission marker and police positions.
-- **Start & save** — start screen, pause menu, and automatic saving (localStorage) so you can continue where you left off.
-- **Sound** — engine hum, sirens, gunshots and a bassline, all synthesized live with WebAudio. No audio files.
+- **Open world on foot and by car** — a 3200×2400 city with a road grid, districts, parks, a marina, a beach and landmarks
+- **Traffic and pedestrians** — cars follow the roads, walkers stroll the sidewalks and flee from trouble
+- **Steal cars** — press E next to a parked car (or a traffic car) and take it; stealing raises your wanted level
+- **Wanted stars + police** — 0–5 stars; police cars chase and ram, patrol officers chase on foot; stars decay when you lie low
+- **4 story missions** — First Wheels, Three Drops, Harbor Heat, Solmar Sunset — plus repeatable courier jobs (Q)
+- **Combat** — punch (F) and pistol (mouse click to shoot), with ammo, health and enemy crews
+- **HUD + minimap** — wanted stars, cash, health, ammo, speed, objective banner and a live minimap
+- **Start screen, pause, game over, win screen and autosave** (every 10 s and on mission completion; Continue on the title screen)
+- **Synthesised sound** — WebAudio engine hum, sirens, gunshots, jingles and a bass groove; no audio files, no network
 
 ## Controls
 
 | Key | Action |
 | --- | --- |
-| `W A S D` / arrows | Walk / drive |
-| `Shift` | Run / nitro boost |
-| `E` | Steal or enter a car / get out |
-| `F` | Punch |
-| Mouse click | Shoot the pistol |
-| `M` | Start the next story job |
-| `R` | Re-arm the pistol |
-| `P` / `Esc` | Pause |
-| `N` | Sound on/off |
+| WASD / arrows | Move / drive (W accelerate, S brake/reverse, A/D steer) |
+| Shift | Run |
+| E | Steal / enter / exit a car |
+| Mouse click | Shoot (on foot) |
+| F | Punch |
+| Q | Start a courier job |
+| Enter | Start the next mission / continue |
+| P / Esc | Pause / resume |
+| M | Music on/off |
 
 ## Play it
 
@@ -40,14 +41,12 @@ node serve.ts
 # open http://localhost:8080
 ```
 
-Or open `game/index.html` through any static file server. The game is pure static files under `game/` — `index.html` plus ES modules under `game/src/`.
+No build step, no network requests: `game/` is plain static files.
 
-## Screenshots
+## Entry plumbing
 
-The four screenshots under `screenshots/` are real renders of the game, staged with `?shot=start|drive|mission|chase` (see `shots.json`): the start screen, driving through Solmar, a mission in progress, and a three-star police chase.
+`main.ts` (Node 22, standard library only) copies `game/` and `screenshots/` to `/output` (or `$MAKEFUN_OUTPUT_DIR`) and writes `/output/dossier.json` with the vendored `vendor/makefun-game.ts` library. It resolves the repository from its own file location, never from the working directory.
 
-## Entry
+## License
 
-This repository is a make.fun competition entry. `main.ts` (Node 22, standard library only) copies `game/` and `screenshots/` into the output directory and writes `dossier.json` with the kit's `buildDossier`.
-
-Play it on [make.fun](https://make.fun/c/gta6-01).
+MIT — see [LICENSE](LICENSE).

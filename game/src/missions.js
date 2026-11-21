@@ -1,157 +1,167 @@
-// Solmar Heat — story missions and courier side gigs.
-import { MISSIONS, VEHICLE_MODELS } from "./config.js";
-import { distance } from "./random.js";
-import { createVehicle } from "./vehicles.js";
+// Story missions and the courier side job. Four story missions in order, each
+// with a waypoint, a goal and a payout. Courier jobs (Q) are repeatable: pick
+// up a parcel, drive it to the marked door, get paid. Every mission target is
+// a waypoint on a road, so the player always has somewhere to drive to.
+import { LANDMARKS } from './config.js';
 
-export class MissionSystem {
-  constructor() {
-    this.defs = MISSIONS;
-    this.completed = new Set();
-    this.active = null;
-    this.stepIndex = 0;
-    this.fightLeft = 0;
-    this.message = "";
-    this.messageTimer = 0;
-    this.courier = null;
-    this.courierTimer = 8;
-    this.storyDone = false;
-  }
+export const MISSIONS = [
+  {
+    id: 1, name: 'First Wheels', giver: 'Mara Voss',
+    brief: 'Mara needs a ride, fast. Steal the red coupe parked by Palma Stadium and bring it to Sunset Garage.',
+    target: { x: 720, y: 300, label: 'Steal the red coupe' },
+    deliver: { x: 700, y: 1560, label: 'Deliver to Sunset Garage' },
+    reward: 250,
+  },
+  {
+    id: 2, name: 'Three Drops', giver: 'Mara Voss',
+    brief: 'The crew runs parcels now. Deliver three packages across Costa Solmar before the buyers lose patience.',
+    stops: [
+      { x: 1200, y: 640, label: 'Drop 1: Downtown' },
+      { x: 2160, y: 1480, label: 'Drop 2: Harbor East' },
+      { x: 480, y: 1900, label: 'Drop 3: Marina Bay' },
+    ],
+    reward: 400,
+  },
+  {
+    id: 3, name: 'Harbor Heat', giver: 'Dario Kane',
+    brief: 'Rivals from the Harbor crew are muscling in on the market. Clear four of them out — fists or pistol, your call.',
+    target: { x: 2500, y: 1300, label: 'Clear the Harbor Market' },
+    enemies: 4, reward: 600,
+  },
+  {
+    id: 4, name: 'Solmar Sunset', giver: 'Mara Voss',
+    brief: 'The whole city is watching. Lose a three-star chase and get the crew car to the Old Town hideout.',
+    target: { x: 1900, y: 700, label: 'Reach the Old Town hideout' },
+    needStars: 3, reward: 900,
+  },
+];
 
-  nextMission() {
-    return this.defs.find((m) => !this.completed.has(m.id)) ?? null;
-  }
+export function createMissions() {
+  return {
+    index: 0, stage: 'idle', // idle | active | done
+    stopIndex: 0, enemiesLeft: 0, enemies: [],
+    courier: null, // {stage:'pickup'|'deliver', pickup, drop, timer}
+    toast: '', toastTimer: 0,
+  };
+}
 
-  startMission(def, game) {
-    this.active = def;
-    this.stepIndex = 0;
-    this.fightLeft = 0;
-    this.showMessage(`${def.title} — ${def.giver}: ${def.briefing}`, 7);
-    this.setupStep(game);
-  }
+export function currentMission(m) { return MISSIONS[m.index] || null; }
 
-  setupStep(game) {
-    if (!this.active) return;
-    const step = this.active.steps[this.stepIndex];
-    if (!step) return;
-    if (step.kind === "steal" && this.active.id === "m1") {
-      game.ensureMarkedCar(VEHICLE_MODELS[0], step.target.x, step.target.y);
+export function startMission(m, player) {
+  const mission = currentMission(m);
+  if (!mission) return false;
+  m.stage = 'active'; m.stopIndex = 0; m.enemies = [];
+  if (mission.enemies) {
+    m.enemiesLeft = mission.enemies;
+    for (let i = 0; i < mission.enemies; i += 1) {
+      m.enemies.push({
+        x: mission.target.x + (i % 2 ? 90 : -90), y: mission.target.y + (i < 2 ? 70 : -70),
+        health: 60, alive: true, speed: 150, punchCooldown: 0, shootTimer: 1 + i * 0.4,
+      });
     }
-    if (step.kind === "steal" && this.active.id === "m4") {
-      game.ensureMarkedCar(VEHICLE_MODELS[6], step.target.x, step.target.y);
-    }
-    if (step.kind === "fight") {
-      this.fightLeft = step.count;
-      for (let i = 0; i < step.count; i++) {
-        game.police.spawnEnemy(step.target.x + (i - 1) * 90, step.target.y + (i % 2) * 70 - 35);
+  }
+  m.toast = `Mission: ${mission.name} — follow the gold marker.`;
+  m.toastTimer = 6;
+  return true;
+}
+
+export function missionWaypoint(m) {
+  const mission = currentMission(m);
+  if (!mission || m.stage !== 'active') return null;
+  if (mission.id === 1) return mission.deliver;
+  if (mission.id === 2) return mission.stops[Math.min(m.stopIndex, mission.stops.length - 1)];
+  if (mission.id === 3) return mission.target;
+  if (mission.id === 4) return mission.target;
+  return null;
+}
+
+export function startCourier(m, rng, player) {
+  if (m.courier) return false;
+  const spots = [
+    { x: 720, y: 640, label: 'Café Lumen pickup' },
+    { x: 1200, y: 1060, label: 'Downtown pickup' },
+    { x: 2640, y: 640, label: 'Palma pickup' },
+  ];
+  const drops = [
+    { x: 240, y: 1480, label: 'Deliver: Sunset Hills' },
+    { x: 2160, y: 220, label: 'Deliver: North End' },
+    { x: 1680, y: 1900, label: 'Deliver: Marina South' },
+  ];
+  const pickup = spots[rng.int(0, spots.length - 1)];
+  const drop = drops[rng.int(0, drops.length - 1)];
+  m.courier = { stage: 'pickup', pickup, drop, timer: 90 };
+  m.toast = `Courier job: pick up the parcel at ${pickup.label}.`;
+  m.toastTimer = 4;
+  return true;
+}
+
+export function courierWaypoint(m) {
+  if (!m.courier) return null;
+  return m.courier.stage === 'pickup' ? m.courier.pickup : m.courier.drop;
+}
+
+// Advance missions. Returns {completed, reward} when a story mission finishes.
+export function stepMissions(m, player, dt, police) {
+  const out = { completed: null, reward: 0, courierPaid: 0 };
+  if (m.toastTimer > 0) m.toastTimer -= dt;
+  const mission = currentMission(m);
+  if (mission && m.stage === 'active') {
+    const d = (t) => Math.hypot(player.x - t.x, player.y - t.y);
+    if (mission.id === 1) {
+      if (player.inCar && d(mission.deliver) < 90) { out.completed = mission; out.reward = mission.reward; }
+    } else if (mission.id === 2) {
+      const stop = mission.stops[m.stopIndex];
+      if (stop && d(stop) < 80) {
+        m.stopIndex += 1; player.deliveries += 1;
+        if (m.stopIndex >= mission.stops.length) { out.completed = mission; out.reward = mission.reward; }
+        else { m.toast = `Drop ${m.stopIndex} done. Next: ${mission.stops[m.stopIndex].label}.`; m.toastTimer = 4; }
+      }
+    } else if (mission.id === 3) {
+      m.enemiesLeft = m.enemies.filter((e) => e.alive).length;
+      if (m.enemiesLeft <= 0) { out.completed = mission; out.reward = mission.reward; }
+    } else if (mission.id === 4) {
+      if (police.stars >= mission.needStars && d(mission.target) < 90) { out.completed = mission; out.reward = mission.reward; }
+      else if (police.stars < mission.needStars && d(mission.target) < 90) {
+        m.toast = 'Too quiet — you need 3 stars of heat before the hideout counts. Make some noise!'; m.toastTimer = 4;
       }
     }
-    if (step.kind === "drive" && this.active.id === "m4") {
-      game.police.setWanted(3);
+    if (out.completed) {
+      m.stage = 'done'; player.missionsDone += 1; m.index += 1;
+      m.toast = `Mission complete: ${mission.name}! +$${mission.reward}`;
+      m.toastTimer = 5;
     }
   }
-
-  currentStep() {
-    if (!this.active) return null;
-    return this.active.steps[this.stepIndex] ?? null;
-  }
-
-  showMessage(text, seconds = 4) {
-    this.message = text;
-    this.messageTimer = seconds;
-  }
-
-  update(dt, game) {
-    if (this.messageTimer > 0) this.messageTimer -= dt;
-    const player = game.player;
-    if (this.active) {
-      const step = this.currentStep();
-      if (step) {
-        if (step.kind === "fight") this.fightLeft = game.police.enemies.length;
-        const d = distance(player.x, player.y, step.target.x, step.target.y);
-        let done = false;
-        if (step.kind === "steal") done = !!player.car && d < step.radius;
-        if (step.kind === "drive" || step.kind === "goto" || step.kind === "deliver" || step.kind === "escape") {
-          done = d < step.radius;
-        }
-        if (step.kind === "fight") done = this.fightLeft <= 0 && game.police.enemies.length === 0;
-        if (done) this.advance(game);
+  if (m.courier) {
+    m.courier.timer -= dt;
+    const target = m.courier.stage === 'pickup' ? m.courier.pickup : m.courier.drop;
+    if (Math.hypot(player.x - target.x, player.y - target.y) < 80) {
+      if (m.courier.stage === 'pickup') {
+        m.courier.stage = 'deliver';
+        m.toast = `Parcel collected. ${m.courier.drop.label}.`; m.toastTimer = 4;
+      } else {
+        const pay = 80 + Math.floor(Math.max(0, m.courier.timer));
+        out.courierPaid = pay; player.cash += pay; player.deliveries += 1;
+        m.toast = `Delivery done! +$${pay}`; m.toastTimer = 4;
+        m.courier = null;
       }
     }
-    this.courierTimer -= dt;
-    if (!this.courier && this.courierTimer <= 0) {
-      this.courierTimer = 25;
-      const spots = game.city.landmarks;
-      const a = spots[Math.floor(Math.random() * spots.length)];
-      const b = spots[Math.floor(Math.random() * spots.length)];
-      if (a !== b) this.courier = { from: a, to: b, picked: false };
-    }
-    if (this.courier) {
-      const target = this.courier.picked ? this.courier.to : this.courier.from;
-      if (distance(player.x, player.y, target.x, target.y) < 110) {
-        if (!this.courier.picked) {
-          this.courier.picked = true;
-          this.showMessage("Package picked up — deliver it to " + this.courier.to.name, 4);
-        } else {
-          player.cash += 120;
-          this.showMessage("Courier delivered! +$120", 4);
-          game.audio.chime();
-          game.saveGame();
-          this.courier = null;
-        }
-      }
-    }
+    if (m.courier && m.courier.timer <= 0) { m.toast = 'Courier job expired — the buyer walked away.'; m.toastTimer = 4; m.courier = null; }
   }
+  return out;
+}
 
-  advance(game) {
-    const step = this.currentStep();
-    game.audio.chime();
-    this.stepIndex += 1;
-    if (this.stepIndex >= this.active.steps.length) {
-      const def = this.active;
-      this.completed.add(def.id);
-      game.player.cash += def.reward;
-      this.showMessage(`${def.title} complete! +$${def.reward}`, 5);
-      this.active = null;
-      this.stepIndex = 0;
-      if (this.nextMission() === null) {
-        this.storyDone = true;
-        this.showMessage("STORY COMPLETE — Solmar is yours. Free roam!", 8);
-      }
-      game.saveGame();
-    } else {
-      this.showMessage("Objective: " + this.active.steps[this.stepIndex].text, 5);
-      this.setupStep(game);
+export function stepMissionEnemies(m, player, dt) {
+  for (const e of m.enemies) {
+    if (!e.alive) continue;
+    e.punchCooldown = Math.max(0, e.punchCooldown - dt);
+    e.shootTimer -= dt;
+    const dx = player.x - e.x, dy = player.y - e.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    if (dist > 34) { e.x += (dx / dist) * e.speed * dt; e.y += (dy / dist) * e.speed * dt; }
+    else if (e.punchCooldown <= 0 && !player.inCar) {
+      e.punchCooldown = 1.1;
+      e.pendingHit = 7;
     }
-    void step;
-  }
-
-  onEnemyDown() {
-    if (this.active && this.currentStep() && this.currentStep().kind === "fight") {
-      this.fightLeft = Math.max(0, this.fightLeft - 1);
-    }
-  }
-
-  objectiveText() {
-    if (this.active && this.currentStep()) {
-      return `${this.active.title}: ${this.currentStep().text}`;
-    }
-    if (this.courier) {
-      const t = this.courier.picked ? this.courier.to : this.courier.from;
-      return `Courier gig: ${this.courier.picked ? "deliver to " : "pick up at "}${t.name} (+$120)`;
-    }
-    const next = this.nextMission();
-    if (next) return `Next job: ${next.title} — press M to start (or walk to the yellow marker)`;
-    return "Free roam — Solmar is yours. Courier gigs pay $120.";
-  }
-
-  targetMarker() {
-    if (this.active && this.currentStep()) return this.currentStep().target;
-    if (this.courier) {
-      const t = this.courier.picked ? this.courier.to : this.courier.from;
-      return { x: t.x, y: t.y };
-    }
-    const next = this.nextMission();
-    if (next) return next.steps[0].target;
-    return null;
+    if (e.shootTimer <= 0 && dist < 420 && dist > 60) { e.shootTimer = 1.6; e.pendingShot = true; }
   }
 }

@@ -1,46 +1,31 @@
-// Solmar Heat — save / load through localStorage. One clear job: persistence.
-import { TUNING } from "./config.js";
+// Autosave: the game writes progress to localStorage every 10 seconds and on
+// mission completion, and offers Continue on the start screen when a save exists.
+import { SAVE_KEY } from './config.js';
 
 export function saveGame(state) {
   try {
     const data = {
-      v: 1,
-      cash: state.player.cash,
-      health: state.player.health,
-      ammo: state.player.ammo,
-      x: state.player.x,
-      y: state.player.y,
-      missions: [...state.missions.completed],
-      storyDone: state.missions.storyDone,
-      wanted: state.police.wanted,
+      cash: state.player.cash, ammo: state.player.ammo, health: state.player.health,
+      x: state.player.x, y: state.player.y,
+      missionsDone: state.player.missionsDone, missionIndex: state.missions.index,
+      deliveries: state.player.deliveries, kills: state.player.kills,
+      time: state.time, savedAt: Date.now(),
     };
-    window.localStorage.setItem(TUNING.saveKey, JSON.stringify(data));
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 export function loadGame() {
   try {
-    const raw = window.localStorage.getItem(TUNING.saveKey);
+    const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || data.v !== 1) return null;
+    if (typeof data.cash !== 'number' || typeof data.x !== 'number') return null;
     return data;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 export function clearSave() {
-  try {
-    window.localStorage.removeItem(TUNING.saveKey);
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-export function hasSave() {
-  return loadGame() !== null;
+  try { window.localStorage.removeItem(SAVE_KEY); } catch { /* storage off */ }
 }
